@@ -207,13 +207,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         elif intent == "unclassified":
-            unclassified = finances.get_unclassified_expenses()
-            if not unclassified:
-                await update.message.reply_text("Нет трат без категории.")
-            else:
-                text = "\n".join([f"{op['amount']} ({op['project']}) — {op['description']} ({op['date']})" for op in unclassified])
-                await update.message.reply_text(f"Траты без категории:\n{text}")
-            return
+            # Только если в сообщении явно есть слова про траты/категории
+            if "категор" in user_text.lower() or "траты" in user_text.lower():
+                unclassified = finances.get_unclassified_expenses()
+                if not unclassified:
+                    await update.message.reply_text("Нет трат без категории.")
+                else:
+                    text = "\n".join([f"{op['amount']} ({op['project']}) — {op['description']} ({op['date']})" for op in unclassified])
+                    await update.message.reply_text(f"Траты без категории:\n{text}")
+                return
     # --- Цели (как раньше) ---
     if re.match(r"установи цель|добавь цель", user_text, re.I):
         # Пример: "Установи цель 3 млн выручки до сентября"
