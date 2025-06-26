@@ -179,6 +179,8 @@ def validate_task_date(date_str):
 
 def extract_date_phrase(text):
     patterns = [
+        r"завтра в \d{1,2}(:\d{2})?",
+        r"послезавтра в \d{1,2}(:\d{2})?",
         r"завтра[\w\s:]*",
         r"послезавтра[\w\s:]*",
         r"сегодня[\w\s:]*",
@@ -204,7 +206,15 @@ def parse_natural_date_and_time(text):
     dt = dateparser.parse(phrase, languages=['ru'], settings={'PREFER_DATES_FROM': 'future'})
     if dt:
         date = dt.strftime('%Y-%m-%d')
-        time = dt.strftime('%H:%M') if (dt.hour or dt.minute) else None
+        # Если время явно указано, используем его, иначе по умолчанию 09:00
+        if re.search(r'\d{1,2}:\d{2}', phrase):
+            time = dt.strftime('%H:%M')
+        elif re.search(r'\d{1,2}', phrase):
+            # Если указаны только часы, округляем к :00
+            hour = re.search(r'\d{1,2}', phrase).group(0)
+            time = f"{int(hour):02d}:00"
+        else:
+            time = "09:00"
         print(f"[DEBUG] dateparser: text='{text}', phrase='{phrase}', parsed_date='{date}', parsed_time='{time}'")
         return date, time
     print(f"[DEBUG] dateparser: text='{text}', phrase='{phrase}', parsed_date=None, parsed_time=None")
