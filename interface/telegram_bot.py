@@ -8,6 +8,7 @@ import json
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
+import dateparser
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -26,8 +27,9 @@ TASK_PROMPT = (
     "Ты — ассистент, который помогает вести задачи пользователя. "
     "На входе — фраза на русском языке. "
     "Верни JSON с полями: intent (add/view/delete/move/done/summary), "
-    "task_text, date (ГГГГ-ММ-ДД или null), time (ЧЧ:ММ или null), new_date (если перенос), task_id (если есть), "
-    "пример: {\"intent\": \"add\", \"task_text\": \"Встреча с Тигрой\", \"date\": \"2024-06-10\", \"time\": \"15:00\"}"
+    "task_text, date (ГГГГ-ММ-ДД если явно указана, иначе null), time (ЧЧ:ММ или null), new_date (если перенос), task_id (если есть). "
+    "Если дата не указана явно, верни null. Не придумывай дату. "
+    "Пример: {\"intent\": \"add\", \"task_text\": \"Встреча с Тигрой\", \"date\": \"2024-06-10\", \"time\": \"15:00\"}"
 )
 
 # --- GPT intent parsing for finances ---
@@ -162,6 +164,23 @@ def start_scheduler(app):
             asyncio.run(send_daily_summary_to_chat(app, chat_id))
     scheduler.add_job(job, 'cron', hour=8, minute=0)
     scheduler.start()
+
+def validate_task_date(date_str):
+    if not date_str:
+        return None
+    try:
+        dt = datetime.strptime(date_str, '%Y-%m-%d')
+        if dt < datetime.now() - timedelta(days=30):
+            return None  # слишком старая дата, вероятно ошибка
+        return date_str
+    except Exception:
+        return None
+
+def parse_natural_date(text):
+    dt = dateparser.parse(text, languages=['ru'])
+    if dt:
+        return dt.strftime('%Y-%m-%d')
+    return None
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
@@ -321,12 +340,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if task_intent:
         intent = task_intent.get("intent")
         if intent == "add":
+            # Проверяем дату задачи
+            date = validate_task_date(task_intent.get("date"))
+            if not date:
+                # Если дата не указана явно, пробуем распознать естественную дату
+                date = parse_natural_date(user_text)
+            if not date and task_intent.get("date"):
+                # Если дата была, но она в прошлом — сообщаем и ставим на сегодня
+                date = datetime.now().strftime('%Y-%m-%d')
+                msg = "Дата задачи была в прошлом, задача записана на сегодня."
+            elif not date:
+                msg = None
+            else:
+                msg = None
             task = calendar.add_task(
                 task_intent.get("task_text"),
-                date=task_intent.get("date"),
+                date=date,
                 time=task_intent.get("time")
             )
-            await update.message.reply_text(f"Задача добавлена: {task['task_text']} ({task['date']} {task['time'] or ''})")
+            reply = f"Задача добавлена: {task['task_text']} ({task['date']} {task['time'] or ''})"
+            if msg:
+                reply = msg + "\n" + reply
+            await update.message.reply_text(reply)
             return
         elif intent == "view":
             date = task_intent.get("date")
