@@ -14,7 +14,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DEFAULT_MODEL = os.getenv("OPENAI_DEFAULT_MODEL", "gpt-3.5-turbo")
 SMART_MODEL = os.getenv("OPENAI_SMART_MODEL", "gpt-4-1106-preview")
 
-openai.api_key = OPENAI_API_KEY
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # Примитивный роутер: если в сообщении есть ключевые слова — используем GPT-4.1
 SMART_KEYWORDS = [
@@ -55,7 +55,7 @@ async def ask_openai(user_text: str, system_prompt: str = None) -> str:
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": user_text})
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model=model,
         messages=messages,
         max_tokens=512,
