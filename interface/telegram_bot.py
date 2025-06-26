@@ -381,13 +381,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Создано {len(tasks)} ежедневных задач по цели '{goal_text}'.")
         else:
             await update.message.reply_text("Формат: 'Разбей цель <цель> на ежедневные задачи: <число> с <дата> по <дата> <единицы>'")
-    # Прежняя маршрутизация
-    elif "задач" in user_text or "встреча" in user_text or "напомни" in user_text:
-        await update.message.reply_text("[Задачи] (заглушка)" )
-    elif "прибыль" in user_text or "доход" in user_text or "расход" in user_text or "финанс" in user_text:
-        await update.message.reply_text("[Финансы] (заглушка)")
-    elif "цель" in user_text or "KPI" in user_text or "прогресс" in user_text:
-        await update.message.reply_text("[Цели/KPI] (заглушка)")
     # --- Естественный язык для задач ---
     task_intent = await parse_task_intent(user_text)
     if task_intent:
