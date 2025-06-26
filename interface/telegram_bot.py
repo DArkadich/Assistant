@@ -184,12 +184,13 @@ def parse_natural_date(text):
     return None
 
 def parse_natural_date_and_time(text):
-    dt = dateparser.parse(text, languages=['ru'])
+    dt = dateparser.parse(text, languages=['ru'], settings={'PREFER_DATES_FROM': 'future'})
     if dt:
         date = dt.strftime('%Y-%m-%d')
-        # Если время явно указано, используем его, иначе None
         time = dt.strftime('%H:%M') if (dt.hour or dt.minute) else None
+        print(f"[DEBUG] dateparser: text='{text}', parsed_date='{date}', parsed_time='{time}'")
         return date, time
+    print(f"[DEBUG] dateparser: text='{text}', parsed_date=None, parsed_time=None")
     return None, None
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
