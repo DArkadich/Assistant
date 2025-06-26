@@ -201,20 +201,35 @@ def parse_natural_date(text):
         return dt.strftime('%Y-%m-%d')
     return None
 
+def smart_hour_from_phrase(phrase):
+    # Если явно указано "утра", "ночи", "am" — 03:00
+    if re.search(r"(утра|ночи|am)", phrase, re.IGNORECASE):
+        return "03:00"
+    # Если явно указано "дня", "вечера", "pm" — 15:00
+    if re.search(r"(дня|вечера|pm)", phrase, re.IGNORECASE):
+        return "15:00"
+    # Если просто "в 3" — считаем 15:00 (рабочий день)
+    hour_match = re.search(r"в (\d{1,2})(?!:)", phrase)
+    if hour_match:
+        hour = int(hour_match.group(1))
+        if 1 <= hour <= 8:
+            return f"{hour+12:02d}:00"  # 3 → 15:00, 8 → 20:00
+        elif 9 <= hour <= 20:
+            return f"{hour:02d}:00"
+        else:
+            return "15:00"
+    return "09:00"
+
 def parse_natural_date_and_time(text):
     phrase = extract_date_phrase(text)
     dt = dateparser.parse(phrase, languages=['ru'], settings={'PREFER_DATES_FROM': 'future'})
     if dt:
         date = dt.strftime('%Y-%m-%d')
-        # Если время явно указано, используем его, иначе по умолчанию 09:00
+        # Если время явно указано, используем его, иначе применяем smart_hour_from_phrase
         if re.search(r'\d{1,2}:\d{2}', phrase):
             time = dt.strftime('%H:%M')
-        elif re.search(r'\d{1,2}', phrase):
-            # Если указаны только часы, округляем к :00
-            hour = re.search(r'\d{1,2}', phrase).group(0)
-            time = f"{int(hour):02d}:00"
         else:
-            time = "09:00"
+            time = smart_hour_from_phrase(phrase)
         print(f"[DEBUG] dateparser: text='{text}', phrase='{phrase}', parsed_date='{date}', parsed_time='{time}'")
         return date, time
     print(f"[DEBUG] dateparser: text='{text}', phrase='{phrase}', parsed_date=None, parsed_time=None")
