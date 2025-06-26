@@ -1,4 +1,4 @@
-name: Test Workflow
+name: Deploy to Production
 
 on:
   push:
@@ -6,9 +6,36 @@ on:
       - main
 
 jobs:
-  test:
+  deploy:
     runs-on: ubuntu-latest
-    steps:
-      - run: echo "Hello from Actions!"
 
-      #nnnkjdhfsgit 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy files to server via SSH
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          source: "."
+          target: "/home/denis/Assistant"
+
+      - name: Run docker compose up on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: 22
+          script: |
+            cd /home/denis/Assistant
+            docker compose pull || true
+            docker compose up --build -d
+
+# Для работы добавьте в GitHub Secrets:
+# SERVER_HOST — IP или домен сервера
+# SERVER_USER — SSH-пользователь
+# SERVER_SSH_KEY — приватный ключ (без пароля) 
