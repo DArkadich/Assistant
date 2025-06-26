@@ -177,6 +177,22 @@ def validate_task_date(date_str):
     except Exception:
         return None
 
+def extract_date_phrase(text):
+    patterns = [
+        r"завтра[\w\s:]*",
+        r"послезавтра[\w\s:]*",
+        r"сегодня[\w\s:]*",
+        r"через [^ ]+",
+        r"в \d{1,2}:\d{2}",
+        r"в \w+",  # в пятницу
+        r"на следующей неделе",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            return m.group(0)
+    return text
+
 def parse_natural_date(text):
     dt = dateparser.parse(text, languages=['ru'])
     if dt:
@@ -184,13 +200,14 @@ def parse_natural_date(text):
     return None
 
 def parse_natural_date_and_time(text):
-    dt = dateparser.parse(text, languages=['ru'], settings={'PREFER_DATES_FROM': 'future'})
+    phrase = extract_date_phrase(text)
+    dt = dateparser.parse(phrase, languages=['ru'], settings={'PREFER_DATES_FROM': 'future'})
     if dt:
         date = dt.strftime('%Y-%m-%d')
         time = dt.strftime('%H:%M') if (dt.hour or dt.minute) else None
-        print(f"[DEBUG] dateparser: text='{text}', parsed_date='{date}', parsed_time='{time}'")
+        print(f"[DEBUG] dateparser: text='{text}', phrase='{phrase}', parsed_date='{date}', parsed_time='{time}'")
         return date, time
-    print(f"[DEBUG] dateparser: text='{text}', parsed_date=None, parsed_time=None")
+    print(f"[DEBUG] dateparser: text='{text}', phrase='{phrase}', parsed_date=None, parsed_time=None")
     return None, None
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -364,7 +381,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 date = datetime.now().strftime('%Y-%m-%d')
                 msg = "Дата задачи была в прошлом или не распознана, задача записана на сегодня."
             elif not date:
-                msg = None
+                # Fallback: спросить пользователя явно
+                await update.message.reply_text("Не удалось определить дату задачи. На какой день поставить задачу?")
+                return
             else:
                 msg = None
             # Логирование для отладки
