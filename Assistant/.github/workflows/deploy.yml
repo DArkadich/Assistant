@@ -39,3 +39,4 @@ jobs:
 # SERVER_HOST — IP или домен сервера
 # SERVER_USER — SSH-пользователь
 # SERVER_SSH_KEY — приватный ключ (без пароля) 
+# добавил
