@@ -183,6 +183,15 @@ def parse_natural_date(text):
         return dt.strftime('%Y-%m-%d')
     return None
 
+def parse_natural_date_and_time(text):
+    dt = dateparser.parse(text, languages=['ru'])
+    if dt:
+        date = dt.strftime('%Y-%m-%d')
+        # Если время явно указано, используем его, иначе None
+        time = dt.strftime('%H:%M') if (dt.hour or dt.minute) else None
+        return date, time
+    return None, None
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     # Сохраняем chat_id для рассылки сводки
@@ -343,21 +352,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if intent == "add":
             # Проверяем дату задачи
             date = validate_task_date(task_intent.get("date"))
+            time = task_intent.get("time")
             if not date:
-                # Если дата не указана явно, пробуем распознать естественную дату
-                date = parse_natural_date(user_text)
+                # Если дата не указана явно, пробуем распознать естественную дату и время
+                date, parsed_time = parse_natural_date_and_time(user_text)
+                if parsed_time:
+                    time = parsed_time
             if not date and task_intent.get("date"):
                 # Если дата была, но она в прошлом — сообщаем и ставим на сегодня
                 date = datetime.now().strftime('%Y-%m-%d')
-                msg = "Дата задачи была в прошлом, задача записана на сегодня."
+                msg = "Дата задачи была в прошлом или не распознана, задача записана на сегодня."
             elif not date:
                 msg = None
             else:
                 msg = None
+            # Логирование для отладки
+            print(f"[DEBUG] add_task: text={task_intent.get('task_text')}, date={date}, time={time}")
             task = calendar.add_task(
                 task_intent.get("task_text"),
                 date=date,
-                time=task_intent.get("time")
+                time=time
             )
             reply = f"Задача добавлена: {task['task_text']} ({task['date']} {task['time'] or ''})"
             if msg:
