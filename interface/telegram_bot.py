@@ -170,8 +170,9 @@ def validate_task_date(date_str):
         return None
     try:
         dt = datetime.strptime(date_str, '%Y-%m-%d')
-        if dt < datetime.now() - timedelta(days=30):
-            return None  # слишком старая дата, вероятно ошибка
+        today = datetime.now().date()
+        if dt.date() < today:
+            return None  # дата в прошлом, вероятно ошибка
         return date_str
     except Exception:
         return None
