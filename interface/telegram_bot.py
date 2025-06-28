@@ -409,9 +409,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if fin_intent:
         intent = fin_intent.get("intent")
         if intent in ("income", "expense"):
-            # Если дата не указана явно и не распознана — уточнить у пользователя
-            date = fin_intent.get("date")
-            if not date:
+            # Приоритет парсинга даты через dateparser
+            import dateparser
+            date_from_gpt = fin_intent.get("date")
+            date_from_text = dateparser.parse(user_text, languages=['ru'])
+            if date_from_text:
+                date_from_text = date_from_text.strftime('%Y-%m-%d')
+            # Если GPT не вернул дату или она отличается от dateparser — используем dateparser
+            if (not date_from_gpt and date_from_text) or (date_from_gpt and date_from_text and date_from_gpt != date_from_text):
+                fin_intent['date'] = date_from_text
+            # Если всё равно нет даты — уточнить у пользователя
+            if not fin_intent.get('date'):
                 await update.message.reply_text("Не удалось определить дату операции. Уточни, пожалуйста, дату для записи дохода/расхода.")
                 context.user_data['awaiting_fin_date'] = fin_intent
                 return
