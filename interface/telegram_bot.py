@@ -313,6 +313,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     print(f"[DEBUG] Получено сообщение: {user_text}")
     save_last_chat_id(update.effective_chat.id)
+
+    # --- Проверка ожидания даты для финансов ---
+    if context.user_data.get('awaiting_fin_date'):
+        fin_intent = context.user_data.pop('awaiting_fin_date')
+        import dateparser
+        dt = dateparser.parse(user_text, languages=['ru'])
+        if not dt:
+            await update.message.reply_text("Не удалось распознать дату. Пожалуйста, укажи дату в формате ГГГГ-ММ-ДД или естественно (например, 'вчера', '25 июня').")
+            context.user_data['awaiting_fin_date'] = fin_intent
+            return
+        fin_intent['date'] = dt.strftime('%Y-%m-%d')
+        if fin_intent['intent'] == 'income':
+            op = finances.add_income(
+                fin_intent.get("amount"),
+                fin_intent.get("project"),
+                description=fin_intent.get("description"),
+                date=fin_intent.get("date")
+            )
+            await update.message.reply_text(f"Доход добавлен: {op['amount']} ({op['project']}) — {op['description']} ({op['date']})")
+        elif fin_intent['intent'] == 'expense':
+            op = finances.add_expense(
+                fin_intent.get("amount"),
+                fin_intent.get("project"),
+                description=fin_intent.get("description"),
+                date=fin_intent.get("date"),
+                category=fin_intent.get("category")
+            )
+            await update.message.reply_text(f"Расход добавлен: {op['amount']} ({op['project']}) — {op['description']} ({op['date']})")
+        return
+
     # --- Управление событиями Google Calendar ---
     # Удаление события
     m = re.match(r"удали событие ([^\n]+) (\d{4}-\d{2}-\d{2})", user_text, re.I)
@@ -378,6 +408,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     fin_intent = await parse_finance_intent(user_text)
     if fin_intent:
         intent = fin_intent.get("intent")
+        if intent in ("income", "expense"):
+            # Если дата не указана явно и не распознана — уточнить у пользователя
+            date = fin_intent.get("date")
+            if not date:
+                await update.message.reply_text("Не удалось определить дату операции. Уточни, пожалуйста, дату для записи дохода/расхода.")
+                context.user_data['awaiting_fin_date'] = fin_intent
+                return
         if intent == "income":
             op = finances.add_income(
                 fin_intent.get("amount"),
