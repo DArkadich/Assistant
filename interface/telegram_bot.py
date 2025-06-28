@@ -689,6 +689,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 required = finances.get_required_docs_for_payment(payment)
                 docs = [finances.find_document_by_id(doc_id) for doc_id in payment['documents_ids']]
                 doc_types = [d['type'] for d in docs if d]
+                
+                # Отладочная информация
+                debug_info = f"\n[DEBUG] Платёж {payment['id']}:"
+                debug_info += f"\n  Требуемые документы: {required}"
+                debug_info += f"\n  Есть документы: {doc_types}"
+                debug_info += f"\n  IDs документов: {payment['documents_ids']}"
+                print(debug_info)
+                
                 missing = [req for req in required if req not in doc_types and req != 'накладная/упд' or (req == 'накладная/упд' and not any(t in doc_types for t in ['накладная', 'упд']))]
                 
                 text += f"\n💰 {payment['amount']} руб. ({payment['project']}) — {payment['counterparty']}\n"
