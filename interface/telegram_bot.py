@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 import dateparser
+import asyncio
+import threading
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -157,11 +159,29 @@ async def send_daily_summary_to_chat(app, chat_id):
 # --- Scheduler ---
 def start_scheduler(app):
     scheduler = BackgroundScheduler(timezone=pytz.timezone('Europe/Moscow'))
+    
     def job():
         chat_id = load_last_chat_id()
         if chat_id:
-            import asyncio
-            asyncio.run(send_daily_summary_to_chat(app, chat_id))
+            # Получаем текущий event loop или создаем новый
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                # Если нет активного loop, создаем новый
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Создаем и запускаем задачу
+            try:
+                if loop.is_running():
+                    # Если loop уже запущен, создаем task
+                    asyncio.create_task(send_daily_summary_to_chat(app, chat_id))
+                else:
+                    # Если loop не запущен, запускаем его
+                    loop.run_until_complete(send_daily_summary_to_chat(app, chat_id))
+            except Exception as e:
+                print(f"Error in scheduler job: {e}")
+    
     scheduler.add_job(job, 'cron', hour=8, minute=0)
     scheduler.start()
 
@@ -235,10 +255,106 @@ def parse_natural_date_and_time(text):
     print(f"[DEBUG] dateparser: text='{text}', phrase='{phrase}', parsed_date=None, parsed_time=None")
     return None, None
 
+# --- Пуллинг Google Calendar ---
+last_polled_events = {}
+
+def start_calendar_polling(app):
+    def poll():
+        while True:
+            now = datetime.now(pytz.timezone('Europe/Moscow'))
+            if 9 <= now.hour < 20:
+                interval = 300  # 5 минут
+            else:
+                interval = 3600  # 60 минут
+            try:
+                chat_id = load_last_chat_id()
+                if chat_id:
+                    check_calendar_changes_and_notify(app, chat_id)
+            except Exception as e:
+                print(f"[Calendar Polling] Error: {e}")
+            finally:
+                import time
+                time.sleep(interval)
+    t = threading.Thread(target=poll, daemon=True)
+    t.start()
+
+def check_calendar_changes_and_notify(app, chat_id):
+    """Проверяет изменения в календаре и уведомляет пользователя."""
+    from core.calendar import get_google_calendar_events
+    global last_polled_events
+    today = datetime.now().strftime('%Y-%m-%d')
+    events = get_google_calendar_events(today)
+    event_map = {e['id']: (e['summary'], e['start'].get('dateTime', e['start'].get('date'))) for e in events}
+    # Сравниваем с предыдущим состоянием
+    if last_polled_events:
+        # Новые события
+        new_events = [e for eid, e in event_map.items() if eid not in last_polled_events]
+        # Изменённые события
+        changed_events = [eid for eid in event_map if eid in last_polled_events and event_map[eid] != last_polled_events[eid]]
+        # Удалённые события
+        deleted_events = [eid for eid in last_polled_events if eid not in event_map]
+        # Уведомления
+        loop = asyncio.get_event_loop()
+        if new_events:
+            for summary, start in new_events:
+                loop.create_task(app.bot.send_message(chat_id=chat_id, text=f"[Календарь] Новое событие: {summary} ({start})"))
+        if changed_events:
+            for eid in changed_events:
+                summary, start = event_map[eid]
+                loop.create_task(app.bot.send_message(chat_id=chat_id, text=f"[Календарь] Изменено событие: {summary} ({start})"))
+        if deleted_events:
+            for eid in deleted_events:
+                summary, start = last_polled_events[eid]
+                loop.create_task(app.bot.send_message(chat_id=chat_id, text=f"[Календарь] Удалено событие: {summary} ({start})"))
+    last_polled_events = event_map.copy()
+
+# --- Расширение handle_message ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-    # Сохраняем chat_id для рассылки сводки
     save_last_chat_id(update.effective_chat.id)
+    # --- Управление событиями Google Calendar ---
+    # Удаление события
+    m = re.match(r"удали событие ([^\n]+) (\d{4}-\d{2}-\d{2})", user_text, re.I)
+    if m:
+        title, date = m.group(1).strip(), m.group(2)
+        event = calendar.find_google_calendar_event_by_title_and_date(title, date)
+        if event:
+            ok = calendar.delete_google_calendar_event(event['id'])
+            if ok:
+                await update.message.reply_text(f"Событие '{title}' на {date} удалено из Google Calendar.")
+            else:
+                await update.message.reply_text(f"Ошибка при удалении события '{title}' на {date}.")
+        else:
+            await update.message.reply_text(f"Событие '{title}' на {date} не найдено.")
+        return
+    # Переименование события
+    m = re.match(r"переименуй событие ([^\n]+) (\d{4}-\d{2}-\d{2}) в ([^\n]+)", user_text, re.I)
+    if m:
+        old_title, date, new_title = m.group(1).strip(), m.group(2), m.group(3).strip()
+        event = calendar.find_google_calendar_event_by_title_and_date(old_title, date)
+        if event:
+            ok = calendar.update_google_calendar_event(event['id'], new_title=new_title)
+            if ok:
+                await update.message.reply_text(f"Событие '{old_title}' на {date} переименовано в '{new_title}'.")
+            else:
+                await update.message.reply_text(f"Ошибка при переименовании события '{old_title}'.")
+        else:
+            await update.message.reply_text(f"Событие '{old_title}' на {date} не найдено.")
+        return
+    # Перенос события
+    m = re.match(r"перенеси событие ([^\n]+) (\d{4}-\d{2}-\d{2}) на (\d{2}:\d{2})", user_text, re.I)
+    if m:
+        title, date, new_time = m.group(1).strip(), m.group(2), m.group(3)
+        event = calendar.find_google_calendar_event_by_title_and_date(title, date)
+        if event:
+            ok = calendar.update_google_calendar_event(event['id'], new_time=new_time)
+            if ok:
+                await update.message.reply_text(f"Событие '{title}' на {date} перенесено на {new_time}.")
+            else:
+                await update.message.reply_text(f"Ошибка при переносе события '{title}'.")
+        else:
+            await update.message.reply_text(f"Событие '{title}' на {date} не найдено.")
+        return
     # --- Сводка по естественным фразам ---
     if re.search(r"(что у меня|план на сегодня|утренняя сводка|дай сводку|сегодня)", user_text, re.I):
         await send_daily_summary(update)
@@ -474,5 +590,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def run_bot():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     start_scheduler(app)
+    start_calendar_polling(app)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling() 

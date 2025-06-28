@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "task_text": "Тестовая задача с Google Calendar",
+    "date": "2025-06-29",
+    "time": "16:00",
+    "done": false
+  },
+  {
+    "id": 2,
+    "task_text": "Тестовая задача с Google Calendar",
+    "date": "2025-06-29",
+    "time": "16:00",
+    "done": false
+  }
+]
