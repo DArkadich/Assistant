@@ -443,6 +443,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Расход добавлен: {op['amount']} ({op['project']}) — {op['description']} ({op['date']})")
         return
 
+    # --- Проверка ожидания выбора платежа для документа ---
+    if context.user_data.get('awaiting_payment_choice'):
+        doc_data = context.user_data.pop('awaiting_payment_choice')
+        try:
+            payment_index = int(user_text.strip()) - 1
+            all_payments = finances.payments
+            if 0 <= payment_index < len(all_payments):
+                payment = all_payments[payment_index]
+                doc = finances.add_ved_document(
+                    doc_type=doc_data['doc_type'],
+                    number=doc_data['number'],
+                    date=doc_data['date'],
+                    payment_ids=[payment['id']]
+                )
+                await update.message.reply_text(f"Документ добавлен: {doc_data['doc_type']} №{doc_data['number']} от {doc_data['date']} для платежа {payment['counterparty']} ({payment['id']})")
+            else:
+                await update.message.reply_text("Неверный номер платежа. Попробуйте снова.")
+                context.user_data['awaiting_payment_choice'] = doc_data
+        except ValueError:
+            await update.message.reply_text("Пожалуйста, введите число (номер платежа).")
+            context.user_data['awaiting_payment_choice'] = doc_data
+        return
+
     # --- Управление событиями Google Calendar ---
     # Удаление события
     m = re.match(r"удали событие ([^\n]+) (\d{4}-\d{2}-\d{2})", user_text, re.I)
@@ -601,6 +624,58 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("Формат: 'Добавь документ <тип> номер <номер> от <дата> для платежа <ID>'")
             return
+    
+    # Добавление документа через естественный язык (автопоиск платежа)
+    if re.search(r"добавь (накладная|упд|гтд|счёт|контракт|акт).*для.*платежа", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду добавления документа (автопоиск): {user_text}")
+        # Ищем тип документа
+        doc_type_match = re.search(r"(накладная|упд|гтд|счёт|контракт|акт)", user_text, re.I)
+        if not doc_type_match:
+            await update.message.reply_text("Не удалось определить тип документа.")
+            return
+        doc_type = doc_type_match.group(1)
+        
+        # Ищем номер документа
+        number_match = re.search(r"номер ([^\s]+)", user_text, re.I)
+        if not number_match:
+            await update.message.reply_text("Не удалось найти номер документа.")
+            return
+        number = number_match.group(1)
+        
+        # Ищем дату
+        date_match = re.search(r"от ([^\s]+)", user_text, re.I)
+        if not date_match:
+            await update.message.reply_text("Не удалось найти дату документа.")
+            return
+        date_phrase = date_match.group(1)
+        
+        # Парсим дату
+        import dateparser
+        dt = dateparser.parse(date_phrase, languages=['ru'])
+        if not dt:
+            await update.message.reply_text("Не удалось распознать дату. Укажи дату в формате ГГГГ-ММ-ДД или естественно.")
+            return
+        
+        # Ищем контрагента в тексте
+        all_payments = finances.payments
+        if not all_payments:
+            await update.message.reply_text("Платежей нет. Сначала добавьте платёж.")
+            return
+        
+        # Показываем список платежей для выбора
+        text = f"Выберите платёж для документа {doc_type} №{number} от {dt.strftime('%Y-%m-%d')}:\n"
+        for i, payment in enumerate(all_payments, 1):
+            text += f"{i}. {payment['amount']} руб. — {payment['counterparty']} ({payment['date']}) [ID: {payment['id']}]\n"
+        
+        # Сохраняем данные документа в контекст
+        context.user_data['awaiting_payment_choice'] = {
+            'doc_type': doc_type,
+            'number': number,
+            'date': dt.strftime('%Y-%m-%d')
+        }
+        
+        await update.message.reply_text(text + "\nОтветьте номером платежа (1, 2, 3...)")
+        return
     
     # Просмотр незакрытых платежей
     if re.search(r"(покажи незакрытые платежи|незакрытые платежи|просроченные документы)", user_text, re.I):
