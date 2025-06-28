@@ -784,6 +784,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Очищено {removed_count} дубликатов документов. Осталось {len(unique_docs)} уникальных документов.")
         return
     
+    # Очистка всех документов
+    if re.search(r"(очисти все документы|удали все документы|очистка всех документов)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду очистки всех документов: {user_text}")
+        doc_count = len(finances.documents)
+        finances.documents = []
+        
+        # Очищаем ссылки на документы в платежах и закупках
+        for payment in finances.payments:
+            payment['documents_ids'] = []
+        for purchase in finances.purchases:
+            purchase['documents_ids'] = []
+        
+        finances.save_doc()
+        await update.message.reply_text(f"Очищено {doc_count} документов. Все документы удалены из системы.")
+        return
+    
     # Просмотр детальной информации о платеже
     if re.search(r"покажи платёж.*([a-f0-9-]{36})", user_text, re.I):
         print(f"[DEBUG] Обрабатываю команду просмотра платежа: {user_text}")
