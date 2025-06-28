@@ -226,6 +226,21 @@ def add_ved_document(doc_type, number, date, payment_ids=None, purchase_ids=None
         'received': bool(file_url)
     }
     ved_documents.append(doc)
+    
+    # Обновляем платежи, добавляя ID документа
+    for payment_id in doc['payment_ids']:
+        payment = find_payment_by_id(payment_id)
+        if payment:
+            if doc['id'] not in payment['documents_ids']:
+                payment['documents_ids'].append(doc['id'])
+    
+    # Обновляем закупки, добавляя ID документа
+    for purchase_id in doc['purchase_ids']:
+        purchase = find_purchase_by_id(purchase_id)
+        if purchase:
+            if doc['id'] not in purchase['documents_ids']:
+                purchase['documents_ids'].append(doc['id'])
+    
     save_ved()
     return doc
 

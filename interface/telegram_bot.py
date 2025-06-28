@@ -734,6 +734,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text)
         return
     
+    # Просмотр всех документов
+    if re.search(r"(покажи все документы|все документы|список документов)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра всех документов: {user_text}")
+        all_documents = finances.ved_documents  # Получаем все документы
+        if not all_documents:
+            await update.message.reply_text("Документов пока нет.")
+        else:
+            text = "Все документы:\n"
+            for doc in all_documents:
+                text += f"\n📄 {doc['type']} №{doc['number']} от {doc['date']}\n"
+                text += f"   ID: {doc['id']}\n"
+                if doc['payment_ids']:
+                    payment = finances.find_payment_by_id(doc['payment_ids'][0])
+                    if payment:
+                        text += f"   Платёж: {payment['counterparty']} ({payment['amount']} руб.)\n"
+                else:
+                    text += f"   Платёж: не привязан\n"
+            
+            await update.message.reply_text(text)
+        return
+    
     # --- Финансы через естественный язык ---
     fin_intent = await parse_finance_intent(user_text)
     if fin_intent:
