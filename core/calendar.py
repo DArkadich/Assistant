@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import dateparser
+import pytz
 
 # Google Calendar API setup
 SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -21,7 +22,7 @@ def get_google_calendar_service():
     """Получить сервис Google Calendar API."""
     try:
         if not os.path.exists(CREDENTIALS_FILE):
-            print(f"Файл {CREDENTIALS_FILE} не найден. Google Calendar интеграция отключена.")
+            print(f"Файл {CREDENTIALS_FILE} не найден. Google Calendar интеграция отключена.", flush=True)
             return None
         
         # Для Service Account используем ServiceAccountCredentials
@@ -33,7 +34,7 @@ def get_google_calendar_service():
         service = build('calendar', 'v3', credentials=creds)
         return service
     except Exception as e:
-        print(f"Ошибка при создании Google Calendar сервиса: {e}")
+        print(f"Ошибка при создании Google Calendar сервиса: {e}", flush=True)
         return None
 
 def add_to_google_calendar(task_text, date, time=None, description=""):
@@ -65,10 +66,10 @@ def add_to_google_calendar(task_text, date, time=None, description=""):
         }
         
         event = service.events().insert(calendarId=MY_CALENDAR_ID, body=event).execute()
-        print(f"Событие добавлено в Google Calendar: {event.get('htmlLink')}")
+        print(f"Событие добавлено в Google Calendar: {event.get('htmlLink')}", flush=True)
         return True
     except Exception as e:
-        print(f"Ошибка при добавлении в Google Calendar: {e}")
+        print(f"Ошибка при добавлении в Google Calendar: {e}", flush=True)
         return False
 
 def get_google_calendar_events(date):
@@ -76,12 +77,13 @@ def get_google_calendar_events(date):
     service = get_google_calendar_service()
     if not service:
         return []
-    
     try:
-        # Время начала и конца дня
-        start_time = f"{date}T00:00:00"
-        end_time = f"{date}T23:59:59"
-        
+        # Время начала и конца дня с временной зоной
+        tz = pytz.timezone('Europe/Moscow')
+        start_dt = tz.localize(datetime.strptime(date, "%Y-%m-%d"))
+        end_dt = start_dt + timedelta(days=1) - timedelta(seconds=1)
+        start_time = start_dt.isoformat()
+        end_time = end_dt.isoformat()
         events_result = service.events().list(
             calendarId=MY_CALENDAR_ID,
             timeMin=start_time,
@@ -89,11 +91,11 @@ def get_google_calendar_events(date):
             singleEvents=True,
             orderBy='startTime'
         ).execute()
-        
         events = events_result.get('items', [])
+        print(f"[DEBUG] get_google_calendar_events({date}) -> {len(events)} событий", flush=True)
         return events
     except Exception as e:
-        print(f"Ошибка при получении событий из Google Calendar: {e}")
+        print(f"Ошибка при получении событий из Google Calendar: {e}", flush=True)
         return []
 
 # --- Persistence ---
@@ -239,10 +241,10 @@ def delete_google_calendar_event(event_id):
         return False
     try:
         service.events().delete(calendarId=MY_CALENDAR_ID, eventId=event_id).execute()
-        print(f"Событие {event_id} удалено из Google Calendar")
+        print(f"Событие {event_id} удалено из Google Calendar", flush=True)
         return True
     except Exception as e:
-        print(f"Ошибка при удалении события: {e}")
+        print(f"Ошибка при удалении события: {e}", flush=True)
         return False
 
 def update_google_calendar_event(event_id, new_title=None, new_time=None):
@@ -264,13 +266,13 @@ def update_google_calendar_event(event_id, new_title=None, new_time=None):
             updated = True
         if updated:
             service.events().update(calendarId=MY_CALENDAR_ID, eventId=event_id, body=event).execute()
-            print(f"Событие {event_id} обновлено в Google Calendar")
+            print(f"Событие {event_id} обновлено в Google Calendar", flush=True)
             return True
         else:
-            print("Нет изменений для обновления")
+            print("Нет изменений для обновления", flush=True)
             return False
     except Exception as e:
-        print(f"Ошибка при обновлении события: {e}")
+        print(f"Ошибка при обновлении события: {e}", flush=True)
         return False
 
 def get_date_range_from_phrase(phrase):
@@ -310,12 +312,12 @@ def delete_all_google_calendar_events_in_range(date_list):
     count = 0
     for date in date_list:
         events = get_google_calendar_events(date)
-        print(f"[DEBUG] События на {date}: {len(events)}")
+        print(f"[DEBUG] События на {date}: {len(events)}", flush=True)
         for event in events:
-            print(f"[DEBUG] Вижу событие: {event.get('summary')} (id={event.get('id')}) start={event.get('start')} end={event.get('end')}")
+            print(f"[DEBUG] Вижу событие: {event.get('summary')} (id={event.get('id')}) start={event.get('start')} end={event.get('end')}", flush=True)
             try:
                 service.events().delete(calendarId=MY_CALENDAR_ID, eventId=event['id']).execute()
                 count += 1
             except Exception as e:
-                print(f"Ошибка при удалении события {event['id']}: {e}")
+                print(f"Ошибка при удалении события {event['id']}: {e}", flush=True)
     return count 
