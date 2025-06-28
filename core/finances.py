@@ -5,6 +5,10 @@ from datetime import datetime
 import gspread
 import traceback
 import uuid
+from google.oauth2.service_account import Credentials
+
+# Импортируем менеджер Google Drive
+from .drive_manager import drive_manager
 
 operations = []
 FIN_FILE = 'finances.json'
@@ -16,7 +20,7 @@ payments = []  # список платежей
 purchases = []  # список закупок
 documents = []  # список документов
 
-DOC_FILE = 'doc_data.json'
+DOC_FILE = 'documents.json'
 
 # --- Persistence ---
 def save_finances():
@@ -444,7 +448,60 @@ def add_purchase(name, amount, date, payment_ids=None):
     return purchase
 
 # --- Добавление документа ---
-def add_document(doc_type, number, date, payment_ids=None, purchase_ids=None, file_url=None, description=None, counterparty_name=None, amount=None, keywords=None):
+def add_document(doc_type, number, date, payment_ids=None, purchase_ids=None, file_url=None, description=None, counterparty_name=None, amount=None, keywords=None, file_path=None):
+    """
+    Добавить документ с возможностью загрузки файла в Google Drive.
+    
+    Args:
+        file_path: Путь к локальному файлу для загрузки в Drive
+    """
+    # Если передан файл, загружаем его в Google Drive
+    drive_file_info = None
+    if file_path and os.path.exists(file_path):
+        try:
+            # Создаем папку для документа
+            folder_id = drive_manager.create_document_folder(doc_type, date)
+            
+            # Загружаем файл
+            file_name = f"{doc_type}_{number}_{date}.{file_path.split('.')[-1]}"
+            drive_file_info = drive_manager.upload_file(
+                file_path=file_path,
+                file_name=file_name,
+                folder_id=folder_id,
+                description=f"{doc_type.title()} №{number} от {date}"
+            )
+            
+            if drive_file_info:
+                file_url = drive_file_info['url']
+                print(f"✅ Файл загружен в Google Drive: {drive_file_info['url']}")
+            else:
+                print("❌ Ошибка загрузки файла в Google Drive")
+                
+        except Exception as e:
+            print(f"❌ Ошибка при работе с Google Drive: {e}")
+    
+    # Если не передан file_path, но есть file_url, извлекаем текст
+    extracted_text = None
+    if file_url and not file_path:
+        try:
+            # Пытаемся извлечь текст из файла в Drive
+            if 'drive.google.com' in file_url:
+                file_id = extract_file_id_from_url(file_url)
+                if file_id:
+                    extracted_text = drive_manager.extract_text_from_file(file_id)
+                    if extracted_text:
+                        print(f"✅ Текст извлечен из файла в Drive")
+        except Exception as e:
+            print(f"❌ Ошибка извлечения текста: {e}")
+    
+    # Автоматически создаем описание, если его нет
+    if not description and extracted_text:
+        description = create_document_description(extracted_text, doc_type, number, date)
+    
+    # Автоматически извлекаем ключевые слова
+    if not keywords and extracted_text:
+        keywords = extract_keywords_from_text(extracted_text, doc_type)
+    
     doc = {
         'id': str(uuid.uuid4()),
         'type': doc_type,
@@ -454,10 +511,13 @@ def add_document(doc_type, number, date, payment_ids=None, purchase_ids=None, fi
         'purchase_ids': purchase_ids or [],
         'file_url': file_url,
         'received': bool(file_url),
-        'description': description,  # Описание документа
-        'counterparty_name': counterparty_name,  # Название контрагента
-        'amount': amount,  # Сумма документа
-        'keywords': keywords or []  # Ключевые слова для поиска
+        'description': description,
+        'counterparty_name': counterparty_name,
+        'amount': amount,
+        'keywords': keywords or [],
+        'drive_file_id': drive_file_info['id'] if drive_file_info else None,
+        'drive_folder_id': drive_file_info.get('folder_id') if drive_file_info else None,
+        'extracted_text': extracted_text[:1000] if extracted_text else None  # Сохраняем первые 1000 символов
     }
     documents.append(doc)
     
@@ -477,6 +537,58 @@ def add_document(doc_type, number, date, payment_ids=None, purchase_ids=None, fi
     
     save_doc()
     return doc
+
+def extract_file_id_from_url(url):
+    """Извлечь ID файла из URL Google Drive."""
+    import re
+    patterns = [
+        r'/file/d/([a-zA-Z0-9-_]+)',
+        r'id=([a-zA-Z0-9-_]+)',
+        r'/d/([a-zA-Z0-9-_]+)'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+def create_document_description(text, doc_type, number, date):
+    """Создать описание документа на основе извлеченного текста."""
+    # Простая логика создания описания
+    lines = text.split('\n')[:10]  # Берем первые 10 строк
+    summary = ' '.join([line.strip() for line in lines if line.strip()])
+    
+    if len(summary) > 200:
+        summary = summary[:200] + "..."
+    
+    return f"{doc_type.title()} №{number} от {date}: {summary}"
+
+def extract_keywords_from_text(text, doc_type):
+    """Извлечь ключевые слова из текста документа."""
+    # Простая логика извлечения ключевых слов
+    keywords = []
+    
+    # Добавляем тип документа
+    keywords.append(doc_type)
+    
+    # Ищем суммы
+    import re
+    amounts = re.findall(r'\d{1,3}(?:\s\d{3})*(?:\sруб|\s₽|руб|₽)', text)
+    if amounts:
+        keywords.extend(amounts[:3])  # Максимум 3 суммы
+    
+    # Ищем даты
+    dates = re.findall(r'\d{1,2}[./]\d{1,2}[./]\d{2,4}', text)
+    if dates:
+        keywords.extend(dates[:2])  # Максимум 2 даты
+    
+    # Ищем организации (слова с заглавной буквы)
+    orgs = re.findall(r'[А-ЯЁ][а-яё]*(?:\s+[А-ЯЁ][а-яё]*)*\s+(?:ООО|ИП|АО|ЗАО)', text)
+    if orgs:
+        keywords.extend(orgs[:2])  # Максимум 2 организации
+    
+    return list(set(keywords))  # Убираем дубликаты
 
 # --- Поиск платежей, закупок, документов ---
 def find_payment_by_id(payment_id):

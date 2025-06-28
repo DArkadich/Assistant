@@ -7,3 +7,8 @@ google-api-python-client>=2.0.0
 apscheduler>=3.10.0 
 pytz>=2023.0
 dateparser>=1.1.0
+# Google Drive и обработка документов
+google-auth-httplib2>=0.1.0
+PyPDF2>=3.0.0
+python-docx>=0.8.11
+Pillow>=9.0.0
