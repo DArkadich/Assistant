@@ -726,6 +726,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text)
         return
     
+    # Удаление платежа
+    if re.search(r"(удали платёж|удалить платёж|удалить платеж|удали платеж).*([a-f0-9-]{36})", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду удаления платежа: {user_text}")
+        payment_id_match = re.search(r"([a-f0-9-]{36})", user_text)
+        if payment_id_match:
+            payment_id = payment_id_match.group(1)
+            payment = finances.find_payment_by_id(payment_id)
+            if payment:
+                # Показываем информацию о платеже перед удалением
+                text = f"Удаляю платёж:\n"
+                text += f"💰 {payment['amount']} руб. ({payment['project']}) — {payment['counterparty']}\n"
+                text += f"Дата: {payment['date']}\n"
+                text += f"Направление: {'входящий' if payment['direction'] == 'in' else 'исходящий'}\n"
+                text += f"Назначение: {payment['purpose']}\n"
+                
+                if payment['documents_ids']:
+                    text += f"\nСвязанные документы (будут удалены):\n"
+                    for doc_id in payment['documents_ids']:
+                        doc = finances.find_document_by_id(doc_id)
+                        if doc:
+                            text += f"  📄 {doc['type']} №{doc['number']} от {doc['date']}\n"
+                
+                # Удаляем платёж
+                if finances.delete_payment(payment_id):
+                    text += f"\n✅ Платёж успешно удалён вместе со всеми связанными документами."
+                    await update.message.reply_text(text)
+                else:
+                    await update.message.reply_text("Ошибка при удалении платежа.")
+            else:
+                await update.message.reply_text(f"Платёж с ID {payment_id} не найден.")
+        else:
+            await update.message.reply_text("Формат: 'Удали платёж [ID_платежа]'")
+        return
+    
     # Просмотр всех закупок
     if re.search(r"(покажи все закупки|все закупки|список закупок)", user_text, re.I):
         print(f"[DEBUG] Обрабатываю команду просмотра всех закупок: {user_text}")

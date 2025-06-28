@@ -293,4 +293,37 @@ def is_payment_closed(payment):
 
 # --- Поиск незакрытых платежей ---
 def get_unclosed_payments():
-    return [p for p in payments if not is_payment_closed(p)] 
+    return [p for p in payments if not is_payment_closed(p)]
+
+# --- Удаление платежа ---
+def delete_payment(payment_id):
+    """
+    Удаляет платёж и все связанные с ним документы.
+    Возвращает True если платёж был найден и удалён, False если не найден.
+    """
+    payment = find_payment_by_id(payment_id)
+    if not payment:
+        return False
+    
+    # Удаляем связанные документы
+    documents_to_remove = []
+    for doc_id in payment['documents_ids']:
+        doc = find_document_by_id(doc_id)
+        if doc:
+            # Удаляем ссылку на этот платёж из документа
+            if payment_id in doc['payment_ids']:
+                doc['payment_ids'].remove(payment_id)
+            # Если у документа больше нет связанных платежей, удаляем его
+            if not doc['payment_ids'] and not doc['purchase_ids']:
+                documents_to_remove.append(doc_id)
+    
+    # Удаляем документы без связей
+    for doc_id in documents_to_remove:
+        documents[:] = [d for d in documents if d['id'] != doc_id]
+    
+    # Удаляем платёж
+    payments[:] = [p for p in payments if p['id'] != payment_id]
+    
+    # Сохраняем изменения
+    save_doc()
+    return True 
