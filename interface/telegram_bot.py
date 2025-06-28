@@ -784,6 +784,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Очищено {removed_count} дубликатов документов. Осталось {len(unique_docs)} уникальных документов.")
         return
     
+    # Просмотр детальной информации о платеже
+    if re.search(r"покажи платёж.*([a-f0-9-]{36})", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра платежа: {user_text}")
+        payment_id_match = re.search(r"([a-f0-9-]{36})", user_text)
+        if payment_id_match:
+            payment_id = payment_id_match.group(1)
+            payment = finances.find_payment_by_id(payment_id)
+            if payment:
+                text = f"Платёж {payment_id}:\n"
+                text += f"💰 {payment['amount']} руб. ({payment['project']}) — {payment['counterparty']}\n"
+                text += f"Дата: {payment['date']}\n"
+                text += f"Направление: {'входящий' if payment['direction'] == 'in' else 'исходящий'}\n"
+                text += f"Страна: {'Россия' if payment['country'] == 'RU' else 'за границу'}\n"
+                text += f"Назначение: {payment['purpose']}\n"
+                text += f"IDs документов: {payment['documents_ids']}\n"
+                
+                if payment['documents_ids']:
+                    text += "\nДокументы:\n"
+                    for doc_id in payment['documents_ids']:
+                        doc = finances.find_document_by_id(doc_id)
+                        if doc:
+                            text += f"  📄 {doc['type']} №{doc['number']} от {doc['date']} (ID: {doc['id']})\n"
+                        else:
+                            text += f"  ❌ Документ {doc_id} не найден\n"
+                else:
+                    text += "\nДокументов нет\n"
+                
+                await update.message.reply_text(text)
+            else:
+                await update.message.reply_text(f"Платёж с ID {payment_id} не найден.")
+        return
+    
     # --- Финансы через естественный язык ---
     fin_intent = await parse_finance_intent(user_text)
     if fin_intent:
