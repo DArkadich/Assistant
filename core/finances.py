@@ -3,6 +3,7 @@ import json
 import os
 from datetime import datetime
 import gspread
+import traceback
 
 operations = []
 FIN_FILE = 'finances.json'
@@ -65,7 +66,7 @@ def add_income(amount, project, description=None, date=None):
     try:
         append_to_gsheet(op)
     except Exception as e:
-        print(f"Ошибка при записи дохода в Google Sheets: {e}", flush=True)
+        print(f"Ошибка при записи дохода в Google Sheets: {e}\n{traceback.format_exc()}", flush=True)
     return op
 
 def add_expense(amount, project, description=None, date=None, category=None):
@@ -86,7 +87,7 @@ def add_expense(amount, project, description=None, date=None, category=None):
     try:
         append_to_gsheet(op)
     except Exception as e:
-        print(f"Ошибка при записи расхода в Google Sheets: {e}", flush=True)
+        print(f"Ошибка при записи расхода в Google Sheets: {e}\n{traceback.format_exc()}", flush=True)
     return op
 
 def get_report(period=None, project=None):
