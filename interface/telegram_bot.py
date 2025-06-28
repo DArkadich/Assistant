@@ -527,7 +527,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if re.search(r"(план на неделю|неделя|недельная сводка)", user_text, re.I):
         await send_weekly_summary(update)
         return
-    # --- ВЭД-операции и документы ---
+    # --- Документооборот и документы ---
     # Добавление платежа
     if re.search(r"добавь платёж.*рубл", user_text, re.I):
         print(f"[DEBUG] Обрабатываю команду добавления платежа: {user_text}")
@@ -613,7 +613,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"Платёж с ID {payment_id} не найден.")
                 return
             
-            doc = finances.add_ved_document(
+            doc = finances.add_document(
                 doc_type=doc_type,
                 number=number,
                 date=dt.strftime('%Y-%m-%d'),
@@ -718,7 +718,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for payment in all_payments:
                 direction_text = 'входящий' if payment['direction'] == 'in' else 'исходящий'
                 country_text = 'Россия' if payment['country'] == 'RU' else 'за границу'
-                text += f"\n💰 {payment['amount']} руб. ({payment['project']}) — {payment['counterparty']}\n"
+                text += f"\n {payment['amount']} руб. ({payment['project']}) — {payment['counterparty']}\n"
                 text += f"   Дата: {payment['date']}, {direction_text}, {country_text}\n"
                 text += f"   ID: {payment['id']}\n"
                 text += f"   Назначение: {payment['purpose']}\n"
@@ -745,7 +745,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Просмотр всех документов
     if re.search(r"(покажи все документы|все документы|список документов)", user_text, re.I):
         print(f"[DEBUG] Обрабатываю команду просмотра всех документов: {user_text}")
-        all_documents = finances.ved_documents  # Получаем все документы
+        all_documents = finances.documents  # Получаем все документы
         if not all_documents:
             await update.message.reply_text("Документов пока нет.")
         else:
@@ -766,7 +766,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Очистка дубликатов документов
     if re.search(r"(очисти дубликаты|удали дубликаты|очистка документов)", user_text, re.I):
         print(f"[DEBUG] Обрабатываю команду очистки дубликатов: {user_text}")
-        all_documents = finances.ved_documents.copy()
+        all_documents = finances.documents.copy()
         unique_docs = []
         seen = set()
         
@@ -778,8 +778,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 unique_docs.append(doc)
         
         removed_count = len(all_documents) - len(unique_docs)
-        finances.ved_documents = unique_docs
-        finances.save_ved()
+        finances.documents = unique_docs
+        finances.save_doc()
         
         await update.message.reply_text(f"Очищено {removed_count} дубликатов документов. Осталось {len(unique_docs)} уникальных документов.")
         return

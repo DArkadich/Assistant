@@ -11,12 +11,12 @@ FIN_FILE = 'finances.json'
 SHEET_ID = '10Tu5b40FPKrDi8M7sXTv8SUAbN2c6UKmJGBhsCK_u94'
 SHEET_NAME = 'Финансы'
 
-# --- Новые структуры для ВЭД и учёта документов ---
+# --- Новые структуры для документооборота и учёта документов ---
 payments = []  # список платежей
 purchases = []  # список закупок
-ved_documents = []  # список документов
+documents = []  # список документов
 
-VED_FILE = 'ved_data.json'
+DOC_FILE = 'doc_data.json'
 
 # --- Persistence ---
 def save_finances():
@@ -152,25 +152,25 @@ def get_total_balance(project=None):
     expense = sum(op['amount'] for op in operations if op['type'] == 'expense' and (not project or op['project'] == project))
     return income - expense
 
-def save_ved():
+def save_doc():
     data = {
         'payments': payments,
         'purchases': purchases,
-        'ved_documents': ved_documents
+        'documents': documents
     }
-    with open(VED_FILE, 'w', encoding='utf-8') as f:
+    with open(DOC_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def load_ved():
-    global payments, purchases, ved_documents
-    if os.path.exists(VED_FILE):
-        with open(VED_FILE, 'r', encoding='utf-8') as f:
+def load_doc():
+    global payments, purchases, documents
+    if os.path.exists(DOC_FILE):
+        with open(DOC_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
             payments = data.get('payments', [])
             purchases = data.get('purchases', [])
-            ved_documents = data.get('ved_documents', [])
+            documents = data.get('documents', [])
 
-load_ved()
+load_doc()
 
 # --- Типы документов ---
 VED_DOC_TYPES = ['накладная', 'упд', 'гтд', 'счёт', 'контракт', 'акт']
@@ -196,7 +196,7 @@ def add_payment(amount, date, direction, country, project, counterparty, purpose
         'closed': False
     }
     payments.append(payment)
-    save_ved()
+    save_doc()
     return payment
 
 # --- Добавление закупки ---
@@ -210,11 +210,11 @@ def add_purchase(name, amount, date, payment_ids=None):
         'documents_ids': []
     }
     purchases.append(purchase)
-    save_ved()
+    save_doc()
     return purchase
 
 # --- Добавление документа ---
-def add_ved_document(doc_type, number, date, payment_ids=None, purchase_ids=None, file_url=None):
+def add_document(doc_type, number, date, payment_ids=None, purchase_ids=None, file_url=None):
     doc = {
         'id': str(uuid.uuid4()),
         'type': doc_type,
@@ -225,7 +225,7 @@ def add_ved_document(doc_type, number, date, payment_ids=None, purchase_ids=None
         'file_url': file_url,
         'received': bool(file_url)
     }
-    ved_documents.append(doc)
+    documents.append(doc)
     
     # Обновляем платежи, добавляя ID документа
     for payment_id in doc['payment_ids']:
@@ -241,7 +241,7 @@ def add_ved_document(doc_type, number, date, payment_ids=None, purchase_ids=None
             if doc['id'] not in purchase['documents_ids']:
                 purchase['documents_ids'].append(doc['id'])
     
-    save_ved()
+    save_doc()
     return doc
 
 # --- Поиск платежей, закупок, документов ---
@@ -252,7 +252,7 @@ def find_purchase_by_id(purchase_id):
     return next((p for p in purchases if p['id'] == purchase_id), None)
 
 def find_document_by_id(doc_id):
-    return next((d for d in ved_documents if d['id'] == doc_id), None)
+    return next((d for d in documents if d['id'] == doc_id), None)
 
 # --- Получение обязательных документов по типу платежа ---
 def get_required_docs_for_payment(payment):
