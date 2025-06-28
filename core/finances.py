@@ -2,9 +2,12 @@
 import json
 import os
 from datetime import datetime
+import gspread
 
 operations = []
 FIN_FILE = 'finances.json'
+SHEET_ID = '10Tu5b40FPKrDi8M7sXTv8SUAbN2c6UKmJGBhsCK_u94'
+SHEET_NAME = 'Финансы'
 
 # --- Persistence ---
 def save_finances():
@@ -19,6 +22,30 @@ def load_finances():
             operations.extend(json.load(f))
 
 load_finances()
+
+# --- Google Sheets ---
+def get_gsheet():
+    gc = gspread.service_account(filename='credentials.json')
+    sh = gc.open_by_key(SHEET_ID)
+    try:
+        worksheet = sh.worksheet(SHEET_NAME)
+    except gspread.exceptions.WorksheetNotFound:
+        worksheet = sh.add_worksheet(title=SHEET_NAME, rows=1000, cols=10)
+    return worksheet
+
+def append_to_gsheet(op):
+    ws = get_gsheet()
+    # Если таблица пуста — добавим заголовки
+    if ws.row_count == 0 or not ws.get_all_values():
+        ws.append_row(['Тип', 'Сумма', 'Проект', 'Описание', 'Дата', 'Категория'])
+    ws.append_row([
+        'Доход' if op['type'] == 'income' else 'Расход',
+        op['amount'],
+        op['project'],
+        op.get('description', ''),
+        op['date'],
+        op.get('category', '')
+    ])
 
 # --- Finance logic ---
 def add_income(amount, project, description=None, date=None):
@@ -35,6 +62,10 @@ def add_income(amount, project, description=None, date=None):
     }
     operations.append(op)
     save_finances()
+    try:
+        append_to_gsheet(op)
+    except Exception as e:
+        print(f"Ошибка при записи дохода в Google Sheets: {e}", flush=True)
     return op
 
 def add_expense(amount, project, description=None, date=None, category=None):
@@ -52,6 +83,10 @@ def add_expense(amount, project, description=None, date=None, category=None):
     }
     operations.append(op)
     save_finances()
+    try:
+        append_to_gsheet(op)
+    except Exception as e:
+        print(f"Ошибка при записи расхода в Google Sheets: {e}", flush=True)
     return op
 
 def get_report(period=None, project=None):
