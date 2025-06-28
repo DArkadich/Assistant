@@ -311,6 +311,7 @@ def check_calendar_changes_and_notify(app, chat_id):
 # --- Расширение handle_message ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
+    print(f"[DEBUG] Получено сообщение: {user_text}")
     save_last_chat_id(update.effective_chat.id)
     # --- Управление событиями Google Calendar ---
     # Удаление события
