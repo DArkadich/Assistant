@@ -381,18 +381,31 @@ def check_calendar_changes_and_notify(app, chat_id):
         # Удалённые события
         deleted_events = [eid for eid in last_polled_events if eid not in event_map]
         # Уведомления
-        loop = asyncio.get_event_loop()
-        if new_events:
-            for summary, start in new_events:
-                loop.create_task(app.bot.send_message(chat_id=chat_id, text=f"[Календарь] Новое событие: {summary} ({start})"))
-        if changed_events:
-            for eid in changed_events:
-                summary, start = event_map[eid]
-                loop.create_task(app.bot.send_message(chat_id=chat_id, text=f"[Календарь] Изменено событие: {summary} ({start})"))
-        if deleted_events:
-            for eid in deleted_events:
-                summary, start = last_polled_events[eid]
-                loop.create_task(app.bot.send_message(chat_id=chat_id, text=f"[Календарь] Удалено событие: {summary} ({start})"))
+        try:
+            loop = asyncio.get_event_loop()
+            if new_events:
+                for summary, start in new_events:
+                    asyncio.run_coroutine_threadsafe(
+                        app.bot.send_message(chat_id=chat_id, text=f"[Календарь] Новое событие: {summary} ({start})"),
+                        loop
+                    )
+            if changed_events:
+                for eid in changed_events:
+                    summary, start = event_map[eid]
+                    asyncio.run_coroutine_threadsafe(
+                        app.bot.send_message(chat_id=chat_id, text=f"[Календарь] Изменено событие: {summary} ({start})"),
+                        loop
+                    )
+            if deleted_events:
+                for eid in deleted_events:
+                    summary, start = last_polled_events[eid]
+                    asyncio.run_coroutine_threadsafe(
+                        app.bot.send_message(chat_id=chat_id, text=f"[Календарь] Удалено событие: {summary} ({start})"),
+                        loop
+                    )
+        except RuntimeError:
+            # Если нет event loop в текущем потоке, просто логируем
+            print(f"[Calendar Polling] No event loop available for notifications")
     last_polled_events = event_map.copy()
 
 # --- Расширение handle_message ---
@@ -490,6 +503,124 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if re.search(r"(план на неделю|неделя|недельная сводка)", user_text, re.I):
         await send_weekly_summary(update)
+        return
+    # --- ВЭД-операции и документы ---
+    # Добавление платежа
+    if re.search(r"добавь платёж.*рубл", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду добавления платежа: {user_text}")
+        m = re.match(r"добавь платёж (\d+) рублей? ([^\n]+) (входящий|исходящий) (в Россию|за границу) проект ([^\n]+) контрагент ([^\n]+) назначение ([^\n]+)", user_text, re.I)
+        if m:
+            amount = int(m.group(1))
+            date_phrase = m.group(2).strip()
+            direction = 'in' if m.group(3) == 'входящий' else 'out'
+            country = 'RU' if m.group(4) == 'в Россию' else 'INT'
+            project = m.group(5).strip()
+            counterparty = m.group(6).strip()
+            purpose = m.group(7).strip()
+            
+            # Парсим дату
+            import dateparser
+            dt = dateparser.parse(date_phrase, languages=['ru'])
+            if not dt:
+                await update.message.reply_text("Не удалось распознать дату. Укажи дату в формате ГГГГ-ММ-ДД или естественно (например, 'вчера').")
+                return
+            
+            payment = finances.add_payment(
+                amount=amount,
+                date=dt.strftime('%Y-%m-%d'),
+                direction=direction,
+                country=country,
+                project=project,
+                counterparty=counterparty,
+                purpose=purpose
+            )
+            await update.message.reply_text(f"Платёж добавлен: {amount} руб. ({direction}, {country}, {project}) — {counterparty} ({purpose})")
+            return
+        else:
+            await update.message.reply_text("Формат: 'Добавь платёж <сумма> рублей <дата> <входящий/исходящий> <в Россию/за границу> проект <название> контрагент <название> назначение <описание>'")
+            return
+    
+    # Добавление закупки
+    if re.search(r"добавь закупку", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду добавления закупки: {user_text}")
+        m = re.match(r"добавь закупку ([^\n]+) (\d+) рублей? ([^\n]+)", user_text, re.I)
+        if m:
+            name = m.group(1).strip()
+            amount = int(m.group(2))
+            date_phrase = m.group(3).strip()
+            
+            # Парсим дату
+            import dateparser
+            dt = dateparser.parse(date_phrase, languages=['ru'])
+            if not dt:
+                await update.message.reply_text("Не удалось распознать дату. Укажи дату в формате ГГГГ-ММ-ДД или естественно.")
+                return
+            
+            purchase = finances.add_purchase(
+                name=name,
+                amount=amount,
+                date=dt.strftime('%Y-%m-%d')
+            )
+            await update.message.reply_text(f"Закупка добавлена: {name} — {amount} руб. ({purchase['date']})")
+            return
+        else:
+            await update.message.reply_text("Формат: 'Добавь закупку <название> <сумма> рублей <дата>'")
+            return
+    
+    # Добавление документа
+    if re.search(r"добавь документ.*(накладная|упд|гтд|счёт|контракт|акт)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду добавления документа: {user_text}")
+        m = re.match(r"добавь документ (накладная|упд|гтд|счёт|контракт|акт) номер ([^\n]+) от ([^\n]+) для платежа ([a-f0-9-]+)", user_text, re.I)
+        if m:
+            doc_type = m.group(1)
+            number = m.group(2).strip()
+            date_phrase = m.group(3).strip()
+            payment_id = m.group(4)
+            
+            # Парсим дату
+            import dateparser
+            dt = dateparser.parse(date_phrase, languages=['ru'])
+            if not dt:
+                await update.message.reply_text("Не удалось распознать дату. Укажи дату в формате ГГГГ-ММ-ДД или естественно.")
+                return
+            
+            # Проверяем существование платежа
+            payment = finances.find_payment_by_id(payment_id)
+            if not payment:
+                await update.message.reply_text(f"Платёж с ID {payment_id} не найден.")
+                return
+            
+            doc = finances.add_ved_document(
+                doc_type=doc_type,
+                number=number,
+                date=dt.strftime('%Y-%m-%d'),
+                payment_ids=[payment_id]
+            )
+            await update.message.reply_text(f"Документ добавлен: {doc_type} №{number} от {doc['date']} для платежа {payment_id}")
+            return
+        else:
+            await update.message.reply_text("Формат: 'Добавь документ <тип> номер <номер> от <дата> для платежа <ID>'")
+            return
+    
+    # Просмотр незакрытых платежей
+    if re.search(r"(покажи незакрытые платежи|незакрытые платежи|просроченные документы)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра незакрытых платежей: {user_text}")
+        unclosed = finances.get_unclosed_payments()
+        if not unclosed:
+            await update.message.reply_text("Все платежи закрыты документами.")
+        else:
+            text = "Незакрытые платежи:\n"
+            for payment in unclosed:
+                required = finances.get_required_docs_for_payment(payment)
+                docs = [finances.find_document_by_id(doc_id) for doc_id in payment['documents_ids']]
+                doc_types = [d['type'] for d in docs if d]
+                missing = [req for req in required if req not in doc_types and req != 'накладная/упд' or (req == 'накладная/упд' and not any(t in doc_types for t in ['накладная', 'упд']))]
+                
+                text += f"\n💰 {payment['amount']} руб. ({payment['project']}) — {payment['counterparty']}\n"
+                text += f"   Дата: {payment['date']}, Направление: {'входящий' if payment['direction'] == 'in' else 'исходящий'}\n"
+                text += f"   Не хватает: {', '.join(missing) if missing else 'все документы есть'}\n"
+            
+            await update.message.reply_text(text)
         return
     # --- Финансы через естественный язык ---
     fin_intent = await parse_finance_intent(user_text)
@@ -642,124 +773,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Создано {len(tasks)} ежедневных задач по цели '{goal_text}'.")
         else:
             await update.message.reply_text("Формат: 'Разбей цель <цель> на ежедневные задачи: <число> с <дата> по <дата> <единицы>'")
-    # --- ВЭД-операции и документы ---
-    # Добавление платежа
-    if re.search(r"добавь платёж.*рубл", user_text, re.I):
-        print(f"[DEBUG] Обрабатываю команду добавления платежа: {user_text}")
-        m = re.match(r"добавь платёж (\d+) рублей? ([^\n]+) (входящий|исходящий) (в Россию|за границу) проект ([^\n]+) контрагент ([^\n]+) назначение ([^\n]+)", user_text, re.I)
-        if m:
-            amount = int(m.group(1))
-            date_phrase = m.group(2).strip()
-            direction = 'in' if m.group(3) == 'входящий' else 'out'
-            country = 'RU' if m.group(4) == 'в Россию' else 'INT'
-            project = m.group(5).strip()
-            counterparty = m.group(6).strip()
-            purpose = m.group(7).strip()
-            
-            # Парсим дату
-            import dateparser
-            dt = dateparser.parse(date_phrase, languages=['ru'])
-            if not dt:
-                await update.message.reply_text("Не удалось распознать дату. Укажи дату в формате ГГГГ-ММ-ДД или естественно (например, 'вчера').")
-                return
-            
-            payment = finances.add_payment(
-                amount=amount,
-                date=dt.strftime('%Y-%m-%d'),
-                direction=direction,
-                country=country,
-                project=project,
-                counterparty=counterparty,
-                purpose=purpose
-            )
-            await update.message.reply_text(f"Платёж добавлен: {amount} руб. ({direction}, {country}, {project}) — {counterparty} ({purpose})")
-            return
-        else:
-            await update.message.reply_text("Формат: 'Добавь платёж <сумма> рублей <дата> <входящий/исходящий> <в Россию/за границу> проект <название> контрагент <название> назначение <описание>'")
-            return
-    
-    # Добавление закупки
-    if re.search(r"добавь закупку", user_text, re.I):
-        print(f"[DEBUG] Обрабатываю команду добавления закупки: {user_text}")
-        m = re.match(r"добавь закупку ([^\n]+) (\d+) рублей? ([^\n]+)", user_text, re.I)
-        if m:
-            name = m.group(1).strip()
-            amount = int(m.group(2))
-            date_phrase = m.group(3).strip()
-            
-            # Парсим дату
-            import dateparser
-            dt = dateparser.parse(date_phrase, languages=['ru'])
-            if not dt:
-                await update.message.reply_text("Не удалось распознать дату. Укажи дату в формате ГГГГ-ММ-ДД или естественно.")
-                return
-            
-            purchase = finances.add_purchase(
-                name=name,
-                amount=amount,
-                date=dt.strftime('%Y-%m-%d')
-            )
-            await update.message.reply_text(f"Закупка добавлена: {name} — {amount} руб. ({purchase['date']})")
-            return
-        else:
-            await update.message.reply_text("Формат: 'Добавь закупку <название> <сумма> рублей <дата>'")
-            return
-    
-    # Добавление документа
-    if re.search(r"добавь документ.*(накладная|упд|гтд|счёт|контракт|акт)", user_text, re.I):
-        print(f"[DEBUG] Обрабатываю команду добавления документа: {user_text}")
-        m = re.match(r"добавь документ (накладная|упд|гтд|счёт|контракт|акт) номер ([^\n]+) от ([^\n]+) для платежа ([a-f0-9-]+)", user_text, re.I)
-        if m:
-            doc_type = m.group(1)
-            number = m.group(2).strip()
-            date_phrase = m.group(3).strip()
-            payment_id = m.group(4)
-            
-            # Парсим дату
-            import dateparser
-            dt = dateparser.parse(date_phrase, languages=['ru'])
-            if not dt:
-                await update.message.reply_text("Не удалось распознать дату. Укажи дату в формате ГГГГ-ММ-ДД или естественно.")
-                return
-            
-            # Проверяем существование платежа
-            payment = finances.find_payment_by_id(payment_id)
-            if not payment:
-                await update.message.reply_text(f"Платёж с ID {payment_id} не найден.")
-                return
-            
-            doc = finances.add_ved_document(
-                doc_type=doc_type,
-                number=number,
-                date=dt.strftime('%Y-%m-%d'),
-                payment_ids=[payment_id]
-            )
-            await update.message.reply_text(f"Документ добавлен: {doc_type} №{number} от {doc['date']} для платежа {payment_id}")
-            return
-        else:
-            await update.message.reply_text("Формат: 'Добавь документ <тип> номер <номер> от <дата> для платежа <ID>'")
-            return
-    
-    # Просмотр незакрытых платежей
-    if re.search(r"(покажи незакрытые платежи|незакрытые платежи|просроченные документы)", user_text, re.I):
-        print(f"[DEBUG] Обрабатываю команду просмотра незакрытых платежей: {user_text}")
-        unclosed = finances.get_unclosed_payments()
-        if not unclosed:
-            await update.message.reply_text("Все платежи закрыты документами.")
-        else:
-            text = "Незакрытые платежи:\n"
-            for payment in unclosed:
-                required = finances.get_required_docs_for_payment(payment)
-                docs = [finances.find_document_by_id(doc_id) for doc_id in payment['documents_ids']]
-                doc_types = [d['type'] for d in docs if d]
-                missing = [req for req in required if req not in doc_types and req != 'накладная/упд' or (req == 'накладная/упд' and not any(t in doc_types for t in ['накладная', 'упд']))]
-                
-                text += f"\n💰 {payment['amount']} руб. ({payment['project']}) — {payment['counterparty']}\n"
-                text += f"   Дата: {payment['date']}, Направление: {'входящий' if payment['direction'] == 'in' else 'исходящий'}\n"
-                text += f"   Не хватает: {', '.join(missing) if missing else 'все документы есть'}\n"
-            
-            await update.message.reply_text(text)
-        return
     # --- Естественный язык для задач ---
     task_intent = await parse_task_intent(user_text)
     if task_intent:
