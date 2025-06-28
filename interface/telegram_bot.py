@@ -618,10 +618,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 text += f"\n💰 {payment['amount']} руб. ({payment['project']}) — {payment['counterparty']}\n"
                 text += f"   Дата: {payment['date']}, Направление: {'входящий' if payment['direction'] == 'in' else 'исходящий'}\n"
+                text += f"   ID: {payment['id']}\n"
                 text += f"   Не хватает: {', '.join(missing) if missing else 'все документы есть'}\n"
             
             await update.message.reply_text(text)
         return
+    
+    # Просмотр всех платежей
+    if re.search(r"(покажи все платежи|все платежи|список платежей)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра всех платежей: {user_text}")
+        all_payments = finances.payments  # Получаем все платежи
+        if not all_payments:
+            await update.message.reply_text("Платежей пока нет.")
+        else:
+            text = "Все платежи:\n"
+            for payment in all_payments:
+                direction_text = 'входящий' if payment['direction'] == 'in' else 'исходящий'
+                country_text = 'Россия' if payment['country'] == 'RU' else 'за границу'
+                text += f"\n💰 {payment['amount']} руб. ({payment['project']}) — {payment['counterparty']}\n"
+                text += f"   Дата: {payment['date']}, {direction_text}, {country_text}\n"
+                text += f"   ID: {payment['id']}\n"
+                text += f"   Назначение: {payment['purpose']}\n"
+            
+            await update.message.reply_text(text)
+        return
+    
+    # Просмотр всех закупок
+    if re.search(r"(покажи все закупки|все закупки|список закупок)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра всех закупок: {user_text}")
+        all_purchases = finances.purchases  # Получаем все закупки
+        if not all_purchases:
+            await update.message.reply_text("Закупок пока нет.")
+        else:
+            text = "Все закупки:\n"
+            for purchase in all_purchases:
+                text += f"\n📦 {purchase['name']} — {purchase['amount']} руб.\n"
+                text += f"   Дата: {purchase['date']}\n"
+                text += f"   ID: {purchase['id']}\n"
+            
+            await update.message.reply_text(text)
+        return
+    
     # --- Финансы через естественный язык ---
     fin_intent = await parse_finance_intent(user_text)
     if fin_intent:
