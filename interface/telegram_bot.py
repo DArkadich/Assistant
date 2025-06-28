@@ -793,349 +793,136 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         text += f"   Платёж: {payment['counterparty']} ({payment['amount']} руб.)\n"
                 else:
                     text += f"   Платёж: не привязан\n"
+                if doc.get('file_url'):
+                    text += f"   📎 Файл: {doc['file_url']}\n"
             
             await update.message.reply_text(text)
         return
     
-    # Очистка дубликатов документов
-    if re.search(r"(очисти дубликаты|удали дубликаты|очистка документов)", user_text, re.I):
-        print(f"[DEBUG] Обрабатываю команду очистки дубликатов: {user_text}")
-        all_documents = finances.documents.copy()
-        unique_docs = []
-        seen = set()
-        
-        for doc in all_documents:
-            # Создаём ключ для уникальности: тип + номер + дата + платежи
-            key = (doc['type'], doc['number'], doc['date'], tuple(sorted(doc['payment_ids'])))
-            if key not in seen:
-                seen.add(key)
-                unique_docs.append(doc)
-        
-        removed_count = len(all_documents) - len(unique_docs)
-        finances.documents = unique_docs
-        finances.save_doc()
-        
-        await update.message.reply_text(f"Очищено {removed_count} дубликатов документов. Осталось {len(unique_docs)} уникальных документов.")
+    # Просмотр контрактов
+    if re.search(r"(покажи контракты|контракты|список контрактов|все контракты)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра контрактов: {user_text}")
+        contracts = [doc for doc in finances.documents if doc['type'] == 'контракт']
+        if not contracts:
+            await update.message.reply_text("Контрактов пока нет.")
+        else:
+            text = f"Контракты ({len(contracts)}):\n"
+            for contract in contracts:
+                text += f"\n📋 Контракт №{contract['number']} от {contract['date']}\n"
+                text += f"   ID: {contract['id']}\n"
+                if contract['payment_ids']:
+                    payment = finances.find_payment_by_id(contract['payment_ids'][0])
+                    if payment:
+                        text += f"   Платёж: {payment['counterparty']} ({payment['amount']} руб.)\n"
+                        text += f"   Проект: {payment['project']}\n"
+                        text += f"   Направление: {'входящий' if payment['direction'] == 'in' else 'исходящий'}\n"
+                else:
+                    text += f"   Платёж: не привязан\n"
+                if contract.get('file_url'):
+                    text += f"   📎 Файл: {contract['file_url']}\n"
+            
+            await update.message.reply_text(text)
         return
     
-    # Очистка всех документов
-    if re.search(r"(очисти все документы|удали все документы|очистка всех документов)", user_text, re.I):
-        print(f"[DEBUG] Обрабатываю команду очистки всех документов: {user_text}")
-        doc_count = len(finances.documents)
-        finances.documents = []
-        
-        # Очищаем ссылки на документы в платежах и закупках
-        for payment in finances.payments:
-            payment['documents_ids'] = []
-        for purchase in finances.purchases:
-            purchase['documents_ids'] = []
-        
-        finances.save_doc()
-        await update.message.reply_text(f"Очищено {doc_count} документов. Все документы удалены из системы.")
+    # Просмотр накладных и УПД
+    if re.search(r"(покажи накладные|накладные|упд|покажи упд|список накладных|список упд)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра накладных/УПД: {user_text}")
+        invoices = [doc for doc in finances.documents if doc['type'] in ['накладная', 'упд']]
+        if not invoices:
+            await update.message.reply_text("Накладных и УПД пока нет.")
+        else:
+            text = f"Накладные и УПД ({len(invoices)}):\n"
+            for invoice in invoices:
+                text += f"\n📄 {invoice['type'].title()} №{invoice['number']} от {invoice['date']}\n"
+                text += f"   ID: {invoice['id']}\n"
+                if invoice['payment_ids']:
+                    payment = finances.find_payment_by_id(invoice['payment_ids'][0])
+                    if payment:
+                        text += f"   Платёж: {payment['counterparty']} ({payment['amount']} руб.)\n"
+                        text += f"   Проект: {payment['project']}\n"
+                else:
+                    text += f"   Платёж: не привязан\n"
+                if invoice.get('file_url'):
+                    text += f"   📎 Файл: {invoice['file_url']}\n"
+            
+            await update.message.reply_text(text)
         return
     
-    # Просмотр детальной информации о платеже
-    if re.search(r"покажи платёж.*([a-f0-9-]{36})", user_text, re.I):
-        print(f"[DEBUG] Обрабатываю команду просмотра платежа: {user_text}")
-        payment_id_match = re.search(r"([a-f0-9-]{36})", user_text)
-        if payment_id_match:
-            payment_id = payment_id_match.group(1)
-            payment = finances.find_payment_by_id(payment_id)
-            if payment:
-                text = f"Платёж {payment_id}:\n"
-                text += f"💰 {payment['amount']} руб. ({payment['project']}) — {payment['counterparty']}\n"
-                text += f"Дата: {payment['date']}\n"
-                text += f"Направление: {'входящий' if payment['direction'] == 'in' else 'исходящий'}\n"
-                text += f"Страна: {'Россия' if payment['country'] == 'RU' else 'за границу'}\n"
-                text += f"Назначение: {payment['purpose']}\n"
-                text += f"IDs документов: {payment['documents_ids']}\n"
-                
-                if payment['documents_ids']:
-                    text += "\nДокументы:\n"
-                    for doc_id in payment['documents_ids']:
-                        doc = finances.find_document_by_id(doc_id)
-                        if doc:
-                            text += f"  📄 {doc['type']} №{doc['number']} от {doc['date']} (ID: {doc['id']})\n"
-                        else:
-                            text += f"  ❌ Документ {doc_id} не найден\n"
+    # Просмотр ГТД
+    if re.search(r"(покажи гтд|гтд|список гтд|все гтд)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра ГТД: {user_text}")
+        gtd_docs = [doc for doc in finances.documents if doc['type'] == 'гтд']
+        if not gtd_docs:
+            await update.message.reply_text("ГТД пока нет.")
+        else:
+            text = f"ГТД ({len(gtd_docs)}):\n"
+            for gtd in gtd_docs:
+                text += f"\n🌍 ГТД №{gtd['number']} от {gtd['date']}\n"
+                text += f"   ID: {gtd['id']}\n"
+                if gtd['payment_ids']:
+                    payment = finances.find_payment_by_id(gtd['payment_ids'][0])
+                    if payment:
+                        text += f"   Платёж: {payment['counterparty']} ({payment['amount']} руб.)\n"
+                        text += f"   Проект: {payment['project']}\n"
+                        text += f"   Страна: {'за границу' if payment['country'] == 'INT' else 'Россия'}\n"
                 else:
-                    text += "\nДокументов нет\n"
-                
-                await update.message.reply_text(text)
-            else:
-                await update.message.reply_text(f"Платёж с ID {payment_id} не найден.")
+                    text += f"   Платёж: не привязан\n"
+                if gtd.get('file_url'):
+                    text += f"   📎 Файл: {gtd['file_url']}\n"
+            
+            await update.message.reply_text(text)
         return
     
-    # Привязка документа к платежу
-    if re.search(r"привяжи документ.*к платежу", user_text, re.I):
-        print(f"[DEBUG] Обрабатываю команду привязки документа: {user_text}")
-        # Ищем ID документа и платежа
-        doc_id_match = re.search(r"документ ([a-f0-9-]{36})", user_text)
-        payment_id_match = re.search(r"платежу ([a-f0-9-]{36})", user_text)
-        
-        if doc_id_match and payment_id_match:
-            doc_id = doc_id_match.group(1)
-            payment_id = payment_id_match.group(1)
-            
-            doc = finances.find_document_by_id(doc_id)
-            payment = finances.find_payment_by_id(payment_id)
-            
-            if not doc:
-                await update.message.reply_text(f"Документ с ID {doc_id} не найден.")
-                return
-            if not payment:
-                await update.message.reply_text(f"Платёж с ID {payment_id} не найден.")
-                return
-            
-            # Добавляем связь
-            if payment_id not in doc['payment_ids']:
-                doc['payment_ids'].append(payment_id)
-            if doc_id not in payment['documents_ids']:
-                payment['documents_ids'].append(doc_id)
-            
-            finances.save_ved()
-            await update.message.reply_text(f"Документ {doc['type']} №{doc['number']} привязан к платежу {payment['counterparty']}")
+    # Просмотр счетов
+    if re.search(r"(покажи счета|счета|список счетов|все счета)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра счетов: {user_text}")
+        bills = [doc for doc in finances.documents if doc['type'] == 'счёт']
+        if not bills:
+            await update.message.reply_text("Счетов пока нет.")
         else:
-            await update.message.reply_text("Формат: 'Привяжи документ [ID_документа] к платежу [ID_платежа]'")
+            text = f"Счета ({len(bills)}):\n"
+            for bill in bills:
+                text += f"\n💰 Счёт №{bill['number']} от {bill['date']}\n"
+                text += f"   ID: {bill['id']}\n"
+                if bill['payment_ids']:
+                    payment = finances.find_payment_by_id(bill['payment_ids'][0])
+                    if payment:
+                        text += f"   Платёж: {payment['counterparty']} ({payment['amount']} руб.)\n"
+                        text += f"   Проект: {payment['project']}\n"
+                        text += f"   Направление: {'входящий' if payment['direction'] == 'in' else 'исходящий'}\n"
+                else:
+                    text += f"   Платёж: не привязан\n"
+                if bill.get('file_url'):
+                    text += f"   📎 Файл: {bill['file_url']}\n"
+            
+            await update.message.reply_text(text)
         return
     
-    # --- Финансы через естественный язык ---
-    fin_intent = await parse_finance_intent(user_text)
-    if fin_intent:
-        intent = fin_intent.get("intent")
-        if intent in ("income", "expense"):
-            import dateparser
-            date_from_gpt = fin_intent.get("date")
-            date_phrase = extract_date_phrase_for_finance(user_text)
-            date_from_text = dateparser.parse(date_phrase, languages=['ru']) if date_phrase else None
-            if date_from_text:
-                date_from_text = date_from_text.strftime('%Y-%m-%d')
-            print(f"[DEBUG] date_from_gpt: {date_from_gpt}, date_phrase: {date_phrase}, date_from_text: {date_from_text}", flush=True)
-            # Если dateparser распознал дату — всегда используем её
-            if date_from_text:
-                fin_intent['date'] = date_from_text
-            # Если всё равно нет даты — уточнить у пользователя
-            if not fin_intent.get('date'):
-                await update.message.reply_text("Не удалось определить дату операции. Уточни, пожалуйста, дату для записи дохода/расхода.")
-                context.user_data['awaiting_fin_date'] = fin_intent
-                return
-        if intent == "income":
-            op = finances.add_income(
-                fin_intent.get("amount"),
-                fin_intent.get("project"),
-                description=fin_intent.get("description"),
-                date=fin_intent.get("date")
-            )
-            await update.message.reply_text(f"Доход добавлен: {op['amount']} ({op['project']}) — {op['description']} ({op['date']})")
-            return
-        elif intent == "expense":
-            op = finances.add_expense(
-                fin_intent.get("amount"),
-                fin_intent.get("project"),
-                description=fin_intent.get("description"),
-                date=fin_intent.get("date"),
-                category=fin_intent.get("category")
-            )
-            await update.message.reply_text(f"Расход добавлен: {op['amount']} ({op['project']}) — {op['description']} ({op['date']})")
-            return
-        elif intent == "report":
-            report = finances.get_report(
-                period=fin_intent.get("period"),
-                project=fin_intent.get("project")
-            )
-            await update.message.reply_text(
-                f"Отчёт: Доход {report['income']}, Расход {report['expense']}, Прибыль {report['profit']}"
-            )
-            return
-        elif intent == "unclassified":
-            # Только если в сообщении явно есть слова про траты/категории
-            if "категор" in user_text.lower() or "траты" in user_text.lower():
-                unclassified = finances.get_unclassified_expenses()
-                if not unclassified:
-                    await update.message.reply_text("Нет трат без категории.")
-                else:
-                    text = "\n".join([f"{op['amount']} ({op['project']}) — {op['description']} ({op['date']})" for op in unclassified])
-                    await update.message.reply_text(f"Траты без категории:\n{text}")
-                return
-    # --- Цели (как раньше) ---
-    if re.match(r"установи цель|добавь цель", user_text, re.I):
-        # Пример: "Установи цель 3 млн выручки до сентября"
-        match = re.search(r"цель (.+?)( до ([^\n]+))?$", user_text, re.I)
-        if match:
-            goal_text = match.group(1).strip()
-            deadline = match.group(3).strip() if match.group(3) else None
-            goal = planner.set_goal(goal_text, deadline)
-            await update.message.reply_text(f"Цель добавлена: {goal['goal_text']} (до {goal['deadline']})")
+    # Просмотр актов
+    if re.search(r"(покажи акты|акты|список актов|все акты)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра актов: {user_text}")
+        acts = [doc for doc in finances.documents if doc['type'] == 'акт']
+        if not acts:
+            await update.message.reply_text("Актов пока нет.")
         else:
-            await update.message.reply_text("Формат: 'Установи цель <текст> до <дата/срок>'")
+            text = f"Акты ({len(acts)}):\n"
+            for act in acts:
+                text += f"\n📋 Акт №{act['number']} от {act['date']}\n"
+                text += f"   ID: {act['id']}\n"
+                if act['payment_ids']:
+                    payment = finances.find_payment_by_id(act['payment_ids'][0])
+                    if payment:
+                        text += f"   Платёж: {payment['counterparty']} ({payment['amount']} руб.)\n"
+                        text += f"   Проект: {payment['project']}\n"
+                        text += f"   Направление: {'входящий' if payment['direction'] == 'in' else 'исходящий'}\n"
+                else:
+                    text += f"   Платёж: не привязан\n"
+                if act.get('file_url'):
+                    text += f"   📎 Файл: {act['file_url']}\n"
+            
+            await update.message.reply_text(text)
         return
-    elif re.match(r"какие цели|покажи цели|список целей", user_text, re.I):
-        goals = planner.get_goals()
-        if not goals:
-            await update.message.reply_text("Целей пока нет.")
-        else:
-            text = "\n".join([f"- {g['goal_text']} (до {g['deadline']})" for g in goals])
-            await update.message.reply_text(f"Текущие цели:\n{text}")
-    elif re.match(r"прогресс по цели", user_text, re.I):
-        # Пример: "Прогресс по цели 3 млн выручки"
-        match = re.search(r"прогресс по цели (.+)$", user_text, re.I)
-        if match:
-            goal_text = match.group(1).strip()
-            progress = planner.get_goal_progress(goal_text)
-            if progress:
-                await update.message.reply_text(f"Прогресс по цели '{progress['goal_text']}': {progress['progress']}% (до {progress['deadline']})")
-            else:
-                await update.message.reply_text("Цель не найдена.")
-        else:
-            await update.message.reply_text("Формат: 'Прогресс по цели <текст цели>'")
-    elif re.match(r"обнови прогресс по цели", user_text, re.I):
-        # Пример: "Обнови прогресс по цели 3 млн выручки: 40%"
-        match = re.search(r"обнови прогресс по цели (.+?):\s*(\d+)%?", user_text, re.I)
-        if match:
-            goal_text = match.group(1).strip()
-            progress = int(match.group(2))
-            updated = planner.update_goal_progress(goal_text, progress)
-            if updated:
-                await update.message.reply_text(f"Прогресс по цели '{goal_text}' обновлён: {progress}%")
-            else:
-                await update.message.reply_text("Цель не найдена.")
-        else:
-            await update.message.reply_text("Формат: 'Обнови прогресс по цели <текст>: <число>%'")
-    elif re.match(r"добавь задачу к цели", user_text, re.I):
-        # Пример: "Добавь задачу к цели 3 млн выручки: Позвонить 10 клиентам"
-        match = re.search(r"добавь задачу к цели (.+?):\s*(.+)$", user_text, re.I)
-        if match:
-            goal_text = match.group(1).strip()
-            task_text = match.group(2).strip()
-            task = planner.add_goal_task(goal_text, task_text)
-            await update.message.reply_text(f"Задача добавлена к цели '{goal_text}': {task['task_text']}")
-        else:
-            await update.message.reply_text("Формат: 'Добавь задачу к цели <цель>: <текст задачи>'")
-    elif re.match(r"отметь задачу по цели.*как выполненную", user_text, re.I):
-        # Пример: "Отметь задачу по цели 3 млн выручки как выполненную: Позвонить 10 клиентам"
-        match = re.search(r"отметь задачу по цели (.+?) как выполненную: (.+)$", user_text, re.I)
-        if match:
-            goal_text = match.group(1).strip()
-            task_text = match.group(2).strip()
-            task = planner.mark_goal_task_done(goal_text, task_text)
-            if task:
-                await update.message.reply_text(f"Задача '{task_text}' по цели '{goal_text}' отмечена как выполненная.")
-            else:
-                await update.message.reply_text("Задача не найдена.")
-        else:
-            await update.message.reply_text("Формат: 'Отметь задачу по цели <цель> как выполненную: <текст задачи>'")
-    elif re.match(r"промежуточные задачи по цели", user_text, re.I):
-        # Пример: "Промежуточные задачи по цели 3 млн выручки"
-        match = re.search(r"промежуточные задачи по цели (.+)$", user_text, re.I)
-        if match:
-            goal_text = match.group(1).strip()
-            tasks = planner.get_goal_tasks(goal_text)
-            if not tasks:
-                await update.message.reply_text("Промежуточных задач по этой цели нет.")
-            else:
-                text = "\n".join([f"- {t['task_text']} ({t['date'] if t['date'] else 'без даты'}) {'[Выполнено]' if t['done'] else ''}" for t in tasks])
-                await update.message.reply_text(f"Промежуточные задачи по цели '{goal_text}':\n{text}")
-        else:
-            await update.message.reply_text("Формат: 'Промежуточные задачи по цели <текст цели>'")
-    elif re.match(r"разбей цель на ежедневные задачи", user_text, re.I):
-        # Пример: "Разбей цель 3 млн выручки на ежедневные задачи: 3000000 с 2024-06-01 по 2024-06-30 руб."
-        match = re.search(r"разбей цель (.+?) на ежедневные задачи: (\d+) с (\d{4}-\d{2}-\d{2}) по (\d{4}-\d{2}-\d{2}) ?([\w.]+)?", user_text, re.I)
-        if match:
-            goal_text = match.group(1).strip()
-            total_value = int(match.group(2))
-            start_date = match.group(3)
-            end_date = match.group(4)
-            unit = match.group(5) if match.group(5) else "единиц"
-            tasks = planner.suggest_daily_tasks(goal_text, total_value, start_date, end_date, unit)
-            await update.message.reply_text(f"Создано {len(tasks)} ежедневных задач по цели '{goal_text}'.")
-        else:
-            await update.message.reply_text("Формат: 'Разбей цель <цель> на ежедневные задачи: <число> с <дата> по <дата> <единицы>'")
-    # --- Естественный язык для задач ---
-    task_intent = await parse_task_intent(user_text)
-    if task_intent:
-        intent = task_intent.get("intent")
-        if intent == "add":
-            # Проверяем дату задачи
-            date = validate_task_date(task_intent.get("date"))
-            time = task_intent.get("time")
-            if not date:
-                # Если дата не указана явно, пробуем распознать естественную дату и время
-                date, parsed_time = parse_natural_date_and_time(user_text)
-                if parsed_time:
-                    time = parsed_time
-            if not date and task_intent.get("date"):
-                # Если дата была, но она в прошлом — сообщаем и ставим на сегодня
-                date = datetime.now().strftime('%Y-%m-%d')
-                msg = "Дата задачи была в прошлом или не распознана, задача записана на сегодня."
-            elif not date:
-                # Fallback: спросить пользователя явно
-                await update.message.reply_text("Не удалось определить дату задачи. На какой день поставить задачу?")
-                return
-            else:
-                msg = None
-            # Логирование для отладки
-            print(f"[DEBUG] add_task: text={task_intent.get('task_text')}, date={date}, time={time}")
-            task = calendar.add_task(
-                task_intent.get("task_text"),
-                date=date,
-                time=time
-            )
-            reply = f"Задача добавлена: {task['task_text']} ({task['date']} {task['time'] or ''})"
-            if msg:
-                reply = msg + "\n" + reply
-            await update.message.reply_text(reply)
-            return
-        elif intent == "view":
-            date = task_intent.get("date")
-            if date:
-                tasks = calendar.get_daily_plan(date)
-                if not tasks:
-                    await update.message.reply_text("На этот день задач нет.")
-                else:
-                    text = "\n".join([f"[{t['id']}] {t['task_text']} {t['time'] or ''} {'[Выполнено]' if t['done'] else ''}" for t in tasks])
-                    await update.message.reply_text(f"Задачи на {date}:\n{text}")
-            else:
-                tasks = calendar.get_tasks()
-                if not tasks:
-                    await update.message.reply_text("Задач нет.")
-                else:
-                    text = "\n".join([f"[{t['id']}] {t['task_text']} {t['date']} {t['time'] or ''} {'[Выполнено]' if t['done'] else ''}" for t in tasks])
-                    await update.message.reply_text(f"Все задачи:\n{text}")
-            return
-        elif intent == "delete":
-            task_id = task_intent.get("task_id")
-            if task_id:
-                calendar.delete_task(task_id)
-                await update.message.reply_text(f"Задача {task_id} удалена.")
-            else:
-                await update.message.reply_text("Не удалось определить задачу для удаления.")
-            return
-        elif intent == "move":
-            task_id = task_intent.get("task_id")
-            new_date = task_intent.get("new_date")
-            if task_id and new_date:
-                calendar.move_task(task_id, new_date)
-                await update.message.reply_text(f"Задача {task_id} перенесена на {new_date}.")
-            else:
-                await update.message.reply_text("Не удалось определить задачу или новую дату.")
-            return
-        elif intent == "done":
-            task_id = task_intent.get("task_id")
-            if task_id:
-                calendar.mark_task_done(task_id)
-                await update.message.reply_text(f"Задача {task_id} отмечена как выполненная.")
-            else:
-                await update.message.reply_text("Не удалось определить задачу для отметки.")
-            return
-        elif intent == "summary":
-            today = datetime.now().strftime("%Y-%m-%d")
-            tasks = calendar.get_daily_plan(today)
-            if not tasks:
-                await update.message.reply_text("На сегодня задач нет.")
-            else:
-                text = "\n".join([f"[{t['id']}] {t['task_text']} {t['time'] or ''} {'[Выполнено]' if t['done'] else ''}" for t in tasks])
-                await update.message.reply_text(f"План на сегодня:\n{text}")
-            return
+    
     # Если не задача и не финансы — fallback на GPT-ответ
     reply = await ask_openai(user_text)
     await update.message.reply_text(reply)
