@@ -411,10 +411,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if intent in ("income", "expense"):
             import dateparser
             date_from_gpt = fin_intent.get("date")
-            date_from_text = dateparser.parse(user_text, languages=['ru'])
+            date_phrase = extract_date_phrase_for_finance(user_text)
+            date_from_text = dateparser.parse(date_phrase, languages=['ru']) if date_phrase else None
             if date_from_text:
                 date_from_text = date_from_text.strftime('%Y-%m-%d')
-            print(f"[DEBUG] date_from_gpt: {date_from_gpt}, date_from_text: {date_from_text}", flush=True)
+            print(f"[DEBUG] date_from_gpt: {date_from_gpt}, date_phrase: {date_phrase}, date_from_text: {date_from_text}", flush=True)
             # Если dateparser распознал дату — всегда используем её
             if date_from_text:
                 fin_intent['date'] = date_from_text
@@ -643,6 +644,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Если не задача и не финансы — fallback на GPT-ответ
     reply = await ask_openai(user_text)
     await update.message.reply_text(reply)
+
+def extract_date_phrase_for_finance(text):
+    import re
+    patterns = [
+        r"вчера", r"сегодня", r"завтра", r"позавчера", r"послезавтра",
+        r"\d{1,2} [а-я]+", r"\d{1,2}\.\d{1,2}\.\d{2,4}", r"\d{4}-\d{2}-\d{2}",
+        r"понедельник|вторник|среда|четверг|пятница|суббота|воскресенье"
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            return m.group(0)
+    return None
 
 def run_bot():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
