@@ -755,6 +755,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text)
         return
     
+    # Очистка дубликатов документов
+    if re.search(r"(очисти дубликаты|удали дубликаты|очистка документов)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду очистки дубликатов: {user_text}")
+        all_documents = finances.ved_documents.copy()
+        unique_docs = []
+        seen = set()
+        
+        for doc in all_documents:
+            # Создаём ключ для уникальности: тип + номер + дата + платежи
+            key = (doc['type'], doc['number'], doc['date'], tuple(sorted(doc['payment_ids'])))
+            if key not in seen:
+                seen.add(key)
+                unique_docs.append(doc)
+        
+        removed_count = len(all_documents) - len(unique_docs)
+        finances.ved_documents = unique_docs
+        finances.save_ved()
+        
+        await update.message.reply_text(f"Очищено {removed_count} дубликатов документов. Осталось {len(unique_docs)} уникальных документов.")
+        return
+    
     # --- Финансы через естественный язык ---
     fin_intent = await parse_finance_intent(user_text)
     if fin_intent:

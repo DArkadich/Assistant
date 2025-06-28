@@ -271,19 +271,24 @@ def is_payment_closed(payment):
     required = get_required_docs_for_payment(payment)
     docs = [find_document_by_id(doc_id) for doc_id in payment['documents_ids']]
     doc_types = [d['type'] for d in docs if d]
-    # Для накладная/упд или гтд — достаточно одного из них
+    
+    # Для накладная/упд — достаточно одного из них
     if 'накладная/упд' in required:
         if not any(t in doc_types for t in ['накладная', 'упд']):
             return False
+    
+    # Для гтд — должен быть
     if 'гтд' in required:
         if 'гтд' not in doc_types:
             return False
+    
     # Остальные — все должны быть
     for t in required:
         if t in ['накладная/упд', 'гтд']:
             continue
         if t not in doc_types:
             return False
+    
     return True
 
 # --- Поиск незакрытых платежей ---
