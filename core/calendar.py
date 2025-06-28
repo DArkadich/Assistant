@@ -303,14 +303,16 @@ def get_date_range_from_phrase(phrase):
     return dates
 
 def delete_all_google_calendar_events_in_range(date_list):
-    """Удалить все события Google Calendar за список дат."""
+    """Удалить все события Google Calendar за список дат. Добавлен отладочный вывод."""
     service = get_google_calendar_service()
     if not service:
         return 0
     count = 0
     for date in date_list:
         events = get_google_calendar_events(date)
+        print(f"[DEBUG] События на {date}: {len(events)}")
         for event in events:
+            print(f"[DEBUG] Вижу событие: {event.get('summary')} (id={event.get('id')}) start={event.get('start')} end={event.get('end')}")
             try:
                 service.events().delete(calendarId=MY_CALENDAR_ID, eventId=event['id']).execute()
                 count += 1
