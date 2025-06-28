@@ -106,27 +106,84 @@ async def send_daily_summary(update: Update):
     await update.message.reply_text(summary)
 
 async def send_weekly_summary(update: Update):
-    today = datetime.now().date()
-    week = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
-    # Задачи
-    tasks = calendar.get_week_plan(today.strftime("%Y-%m-%d"))
-    if tasks:
-        tasks_text = "\n".join([f"- {t['task_text']} ({t['date']}) {t['time'] or ''} {'[Выполнено]' if t['done'] else ''}" for t in tasks])
-    else:
-        tasks_text = "Нет задач."
-    # Цели
+    from core import calendar, planner, finances
+    import pytz
+    today = datetime.now(pytz.timezone('Europe/Moscow')).date()
+    week_dates = [(today + timedelta(days=i)) for i in range(7)]
+    week_strs = [d.strftime('%Y-%m-%d') for d in week_dates]
+    week_days = [d.strftime('%A, %d %B').capitalize() for d in week_dates]
+
+    # 1. Группировка задач по дням недели (только невыполненные)
+    tasks_by_day = {d: [] for d in week_strs}
+    for d in week_strs:
+        day_tasks = [t for t in calendar.get_daily_plan(d) if not t.get('done')]
+        tasks_by_day[d] = day_tasks
+
+    # 2. Дедлайны на неделе (по задачам и целям)
+    deadlines = []
+    # Задачи с дедлайном на неделе
+    for d in week_strs:
+        for t in tasks_by_day[d]:
+            if not t.get('from_google_calendar'):
+                deadlines.append((d, t['task_text']))
+    # Цели с дедлайном на неделе
+    for goal in planner.get_goals():
+        deadline = goal.get('deadline')
+        if deadline and deadline in week_strs:
+            deadlines.append((deadline, f"Цель: {goal['goal_text']}"))
+
+    # 3. Важные события из Google Calendar
+    events = []
+    for d in week_strs:
+        for t in tasks_by_day[d]:
+            if t.get('from_google_calendar'):
+                events.append((d, t['task_text'], t.get('time')))
+
+    # 4. Цели и аналитика
     goals = planner.get_goals()
-    if goals:
-        goals_text = "\n".join([f"- {g['goal_text']} — {g['progress']}% (до {g['deadline']})" for g in goals])
-    else:
-        goals_text = "Нет целей."
-    # Финансы (за неделю)
-    period = today.strftime("%Y-%m-%d")[:7]  # ГГГГ-ММ
+    goals_text = []
+    for goal in goals:
+        deadline = goal.get('deadline')
+        progress = goal.get('progress', 0)
+        days_left = (datetime.strptime(deadline, '%Y-%m-%d').date() - today).days if deadline else None
+        tasks_left = 0
+        if hasattr(planner, 'get_goal_tasks'):
+            tasks_left = len([t for t in planner.get_goal_tasks(goal['goal_text']) if not t.get('done')])
+        goals_text.append(f"- {goal['goal_text']} — {progress}% (до {deadline or '—'}, осталось {days_left if days_left is not None else '?'} дн., {tasks_left} задач)")
+    if not goals_text:
+        goals_text = ["Нет целей."]
+
+    # 5. Финансы за месяц
+    period = today.strftime("%Y-%m")
     report = finances.get_report(period=period)
     finance_text = f"Доход: {report['income']}, Расход: {report['expense']}, Прибыль: {report['profit']}"
-    # Итог
-    summary = f"🗓️ План на неделю:\n{tasks_text}\n\n🎯 Цели:\n{goals_text}\n\n💰 Финансы за месяц:\n{finance_text}"
-    await update.message.reply_text(summary)
+
+    # Формируем итоговый текст
+    summary = "🗓️ <b>План на неделю</b>\n"
+    for i, d in enumerate(week_strs):
+        day_header = f"<b>{week_days[i]}</b>"
+        day_tasks = tasks_by_day[d]
+        if day_tasks:
+            summary += f"\n{day_header}:\n"
+            for t in day_tasks:
+                time = t.get('time')
+                summary += f"- [{time or '--:--'}] {t['task_text']}\n"
+    # Дедлайны
+    if deadlines:
+        summary += "\n⏰ <b>Дедлайны на неделе:</b>\n"
+        for d, text in deadlines:
+            summary += f"- {d}: {text}\n"
+    # События
+    if events:
+        summary += "\n📅 <b>События:</b>\n"
+        for d, text, time in events:
+            summary += f"- {d} {time or ''}: {text}\n"
+    # Цели
+    summary += "\n🎯 <b>Цели и аналитика:</b>\n" + "\n".join(goals_text)
+    # Финансы
+    summary += f"\n\n💰 <b>Финансы за {today.strftime('%B')}:</b>\n{finance_text}"
+
+    await update.message.reply_text(summary, parse_mode='HTML')
 
 # --- Для рассылки сводки ---
 last_chat_id_file = 'last_chat_id.txt'
