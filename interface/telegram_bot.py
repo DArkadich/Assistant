@@ -923,6 +923,63 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text)
         return
     
+    # Просмотр приходов за неделю
+    if re.search(r"(покажи приходы за эту неделю|приходы за неделю|доходы за неделю|покажи доходы за неделю)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра приходов за неделю: {user_text}")
+        
+        # Проверяем, есть ли указание проекта
+        project_match = re.search(r"проект[а]?\s+([а-яёa-z0-9\s]+)", user_text, re.I)
+        project = project_match.group(1).strip() if project_match else None
+        
+        week_data = finances.get_income_for_week(project=project)
+        
+        if not week_data['income_list']:
+            project_text = f" по проекту '{project}'" if project else ""
+            await update.message.reply_text(f"Приходов за эту неделю{project_text} нет.")
+        else:
+            text = f"💰 Приходы за неделю ({week_data['week_start']} - {week_data['week_end']})"
+            if project:
+                text += f" по проекту '{project}'"
+            text += f":\n\n"
+            
+            for income in week_data['income_list']:
+                text += f"📈 {income['amount']} руб. ({income['project']})\n"
+                text += f"   {income['description']} — {income['date']}\n\n"
+            
+            text += f"💵 <b>Итого: {week_data['total_amount']} руб.</b>"
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+        return
+    
+    # Просмотр расходов за неделю
+    if re.search(r"(покажи расходы за эту неделю|расходы за неделю|покажи траты за неделю|траты за неделю)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра расходов за неделю: {user_text}")
+        
+        # Проверяем, есть ли указание проекта
+        project_match = re.search(r"проект[а]?\s+([а-яёa-z0-9\s]+)", user_text, re.I)
+        project = project_match.group(1).strip() if project_match else None
+        
+        week_data = finances.get_expense_for_week(project=project)
+        
+        if not week_data['expense_list']:
+            project_text = f" по проекту '{project}'" if project else ""
+            await update.message.reply_text(f"Расходов за эту неделю{project_text} нет.")
+        else:
+            text = f"💸 Расходы за неделю ({week_data['week_start']} - {week_data['week_end']})"
+            if project:
+                text += f" по проекту '{project}'"
+            text += f":\n\n"
+            
+            for expense in week_data['expense_list']:
+                category_text = f" [{expense.get('category', 'без категории')}]" if expense.get('category') else ""
+                text += f"📉 {expense['amount']} руб. ({expense['project']}){category_text}\n"
+                text += f"   {expense['description']} — {expense['date']}\n\n"
+            
+            text += f"💸 <b>Итого: {week_data['total_amount']} руб.</b>"
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+        return
+    
     # Если не задача и не финансы — fallback на GPT-ответ
     reply = await ask_openai(user_text)
     await update.message.reply_text(reply)

@@ -152,6 +152,66 @@ def get_total_balance(project=None):
     expense = sum(op['amount'] for op in operations if op['type'] == 'expense' and (not project or op['project'] == project))
     return income - expense
 
+def get_income_for_week(project=None):
+    """Получить приходы за текущую неделю (с понедельника по воскресенье)."""
+    from datetime import datetime, timedelta
+    
+    today = datetime.now().date()
+    # Находим понедельник текущей недели
+    monday = today - timedelta(days=today.weekday())
+    # Находим воскресенье текущей недели
+    sunday = monday + timedelta(days=6)
+    
+    week_income = []
+    total_amount = 0
+    
+    for op in operations:
+        if op['type'] == 'income':
+            if project and op['project'] != project:
+                continue
+            
+            op_date = datetime.strptime(op['date'], '%Y-%m-%d').date()
+            if monday <= op_date <= sunday:
+                week_income.append(op)
+                total_amount += op['amount']
+    
+    return {
+        'income_list': week_income,
+        'total_amount': total_amount,
+        'week_start': monday.strftime('%Y-%m-%d'),
+        'week_end': sunday.strftime('%Y-%m-%d')
+    }
+
+def get_expense_for_week(project=None):
+    """Получить расходы за текущую неделю (с понедельника по воскресенье)."""
+    from datetime import datetime, timedelta
+    
+    today = datetime.now().date()
+    # Находим понедельник текущей недели
+    monday = today - timedelta(days=today.weekday())
+    # Находим воскресенье текущей недели
+    sunday = monday + timedelta(days=6)
+    
+    week_expense = []
+    total_amount = 0
+    
+    for op in operations:
+        if op['type'] == 'expense':
+            if project and op['project'] != project:
+                continue
+            
+            op_date = datetime.strptime(op['date'], '%Y-%m-%d').date()
+            if monday <= op_date <= sunday:
+                week_expense.append(op)
+                total_amount += op['amount']
+    
+    return {
+        'expense_list': week_expense,
+        'total_amount': total_amount,
+        'week_start': monday.strftime('%Y-%m-%d'),
+        'week_end': sunday.strftime('%Y-%m-%d')
+    }
+
 def save_doc():
     data = {
         'payments': payments,
