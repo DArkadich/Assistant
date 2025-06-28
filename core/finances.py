@@ -212,6 +212,176 @@ def get_expense_for_week(project=None):
         'week_end': sunday.strftime('%Y-%m-%d')
     }
 
+def get_income_for_month(month=None, year=None, project=None):
+    """Получить приходы за месяц."""
+    from datetime import datetime
+    
+    if month is None or year is None:
+        today = datetime.now()
+        month = today.month
+        year = today.year
+    
+    month_income = []
+    total_amount = 0
+    
+    for op in operations:
+        if op['type'] == 'income':
+            if project and op['project'] != project:
+                continue
+            
+            op_date = datetime.strptime(op['date'], '%Y-%m-%d')
+            if op_date.month == month and op_date.year == year:
+                month_income.append(op)
+                total_amount += op['amount']
+    
+    month_name = datetime(year, month, 1).strftime('%B %Y')
+    return {
+        'income_list': month_income,
+        'total_amount': total_amount,
+        'period': month_name
+    }
+
+def get_expense_for_month(month=None, year=None, project=None):
+    """Получить расходы за месяц."""
+    from datetime import datetime
+    
+    if month is None or year is None:
+        today = datetime.now()
+        month = today.month
+        year = today.year
+    
+    month_expense = []
+    total_amount = 0
+    
+    for op in operations:
+        if op['type'] == 'expense':
+            if project and op['project'] != project:
+                continue
+            
+            op_date = datetime.strptime(op['date'], '%Y-%m-%d')
+            if op_date.month == month and op_date.year == year:
+                month_expense.append(op)
+                total_amount += op['amount']
+    
+    month_name = datetime(year, month, 1).strftime('%B %Y')
+    return {
+        'expense_list': month_expense,
+        'total_amount': total_amount,
+        'period': month_name
+    }
+
+def get_income_for_quarter(quarter=None, year=None, project=None):
+    """Получить приходы за квартал."""
+    from datetime import datetime
+    
+    if quarter is None or year is None:
+        today = datetime.now()
+        quarter = (today.month - 1) // 3 + 1
+        year = today.year
+    
+    quarter_income = []
+    total_amount = 0
+    
+    for op in operations:
+        if op['type'] == 'income':
+            if project and op['project'] != project:
+                continue
+            
+            op_date = datetime.strptime(op['date'], '%Y-%m-%d')
+            op_quarter = (op_date.month - 1) // 3 + 1
+            if op_quarter == quarter and op_date.year == year:
+                quarter_income.append(op)
+                total_amount += op['amount']
+    
+    quarter_name = f"Q{quarter} {year}"
+    return {
+        'income_list': quarter_income,
+        'total_amount': total_amount,
+        'period': quarter_name
+    }
+
+def get_expense_for_quarter(quarter=None, year=None, project=None):
+    """Получить расходы за квартал."""
+    from datetime import datetime
+    
+    if quarter is None or year is None:
+        today = datetime.now()
+        quarter = (today.month - 1) // 3 + 1
+        year = today.year
+    
+    quarter_expense = []
+    total_amount = 0
+    
+    for op in operations:
+        if op['type'] == 'expense':
+            if project and op['project'] != project:
+                continue
+            
+            op_date = datetime.strptime(op['date'], '%Y-%m-%d')
+            op_quarter = (op_date.month - 1) // 3 + 1
+            if op_quarter == quarter and op_date.year == year:
+                quarter_expense.append(op)
+                total_amount += op['amount']
+    
+    quarter_name = f"Q{quarter} {year}"
+    return {
+        'expense_list': quarter_expense,
+        'total_amount': total_amount,
+        'period': quarter_name
+    }
+
+def get_income_for_year(year=None, project=None):
+    """Получить приходы за год."""
+    from datetime import datetime
+    
+    if year is None:
+        year = datetime.now().year
+    
+    year_income = []
+    total_amount = 0
+    
+    for op in operations:
+        if op['type'] == 'income':
+            if project and op['project'] != project:
+                continue
+            
+            op_date = datetime.strptime(op['date'], '%Y-%m-%d')
+            if op_date.year == year:
+                year_income.append(op)
+                total_amount += op['amount']
+    
+    return {
+        'income_list': year_income,
+        'total_amount': total_amount,
+        'period': str(year)
+    }
+
+def get_expense_for_year(year=None, project=None):
+    """Получить расходы за год."""
+    from datetime import datetime
+    
+    if year is None:
+        year = datetime.now().year
+    
+    year_expense = []
+    total_amount = 0
+    
+    for op in operations:
+        if op['type'] == 'expense':
+            if project and op['project'] != project:
+                continue
+            
+            op_date = datetime.strptime(op['date'], '%Y-%m-%d')
+            if op_date.year == year:
+                year_expense.append(op)
+                total_amount += op['amount']
+    
+    return {
+        'expense_list': year_expense,
+        'total_amount': total_amount,
+        'period': str(year)
+    }
+
 def save_doc():
     data = {
         'payments': payments,

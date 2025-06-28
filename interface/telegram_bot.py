@@ -980,6 +980,177 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text, parse_mode='HTML')
         return
     
+    # Просмотр приходов за месяц
+    if re.search(r"(покажи приходы за месяц|приходы за месяц|доходы за месяц|покажи доходы за месяц)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра приходов за месяц: {user_text}")
+        
+        # Проверяем, есть ли указание проекта
+        project_match = re.search(r"проект[а]?\s+([а-яёa-z0-9\s]+)", user_text, re.I)
+        project = project_match.group(1).strip() if project_match else None
+        
+        month_data = finances.get_income_for_month(project=project)
+        
+        if not month_data['income_list']:
+            project_text = f" по проекту '{project}'" if project else ""
+            await update.message.reply_text(f"Приходов за {month_data['period']}{project_text} нет.")
+        else:
+            text = f"💰 Приходы за {month_data['period']}"
+            if project:
+                text += f" по проекту '{project}'"
+            text += f":\n\n"
+            
+            for income in month_data['income_list']:
+                text += f"📈 {income['amount']} руб. ({income['project']})\n"
+                text += f"   {income['description']} — {income['date']}\n\n"
+            
+            text += f"💵 <b>Итого: {month_data['total_amount']} руб.</b>"
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+        return
+    
+    # Просмотр расходов за месяц
+    if re.search(r"(покажи расходы за месяц|расходы за месяц|покажи траты за месяц|траты за месяц)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра расходов за месяц: {user_text}")
+        
+        # Проверяем, есть ли указание проекта
+        project_match = re.search(r"проект[а]?\s+([а-яёa-z0-9\s]+)", user_text, re.I)
+        project = project_match.group(1).strip() if project_match else None
+        
+        month_data = finances.get_expense_for_month(project=project)
+        
+        if not month_data['expense_list']:
+            project_text = f" по проекту '{project}'" if project else ""
+            await update.message.reply_text(f"Расходов за {month_data['period']}{project_text} нет.")
+        else:
+            text = f"💸 Расходы за {month_data['period']}"
+            if project:
+                text += f" по проекту '{project}'"
+            text += f":\n\n"
+            
+            for expense in month_data['expense_list']:
+                category_text = f" [{expense.get('category', 'без категории')}]" if expense.get('category') else ""
+                text += f"📉 {expense['amount']} руб. ({expense['project']}){category_text}\n"
+                text += f"   {expense['description']} — {expense['date']}\n\n"
+            
+            text += f"💸 <b>Итого: {month_data['total_amount']} руб.</b>"
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+        return
+    
+    # Просмотр приходов за квартал
+    if re.search(r"(покажи приходы за квартал|приходы за квартал|доходы за квартал|покажи доходы за квартал)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра приходов за квартал: {user_text}")
+        
+        # Проверяем, есть ли указание проекта
+        project_match = re.search(r"проект[а]?\s+([а-яёa-z0-9\s]+)", user_text, re.I)
+        project = project_match.group(1).strip() if project_match else None
+        
+        quarter_data = finances.get_income_for_quarter(project=project)
+        
+        if not quarter_data['income_list']:
+            project_text = f" по проекту '{project}'" if project else ""
+            await update.message.reply_text(f"Приходов за {quarter_data['period']}{project_text} нет.")
+        else:
+            text = f"💰 Приходы за {quarter_data['period']}"
+            if project:
+                text += f" по проекту '{project}'"
+            text += f":\n\n"
+            
+            for income in quarter_data['income_list']:
+                text += f"📈 {income['amount']} руб. ({income['project']})\n"
+                text += f"   {income['description']} — {income['date']}\n\n"
+            
+            text += f"💵 <b>Итого: {quarter_data['total_amount']} руб.</b>"
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+        return
+    
+    # Просмотр расходов за квартал
+    if re.search(r"(покажи расходы за квартал|расходы за квартал|покажи траты за квартал|траты за квартал)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра расходов за квартал: {user_text}")
+        
+        # Проверяем, есть ли указание проекта
+        project_match = re.search(r"проект[а]?\s+([а-яёa-z0-9\s]+)", user_text, re.I)
+        project = project_match.group(1).strip() if project_match else None
+        
+        quarter_data = finances.get_expense_for_quarter(project=project)
+        
+        if not quarter_data['expense_list']:
+            project_text = f" по проекту '{project}'" if project else ""
+            await update.message.reply_text(f"Расходов за {quarter_data['period']}{project_text} нет.")
+        else:
+            text = f"💸 Расходы за {quarter_data['period']}"
+            if project:
+                text += f" по проекту '{project}'"
+            text += f":\n\n"
+            
+            for expense in quarter_data['expense_list']:
+                category_text = f" [{expense.get('category', 'без категории')}]" if expense.get('category') else ""
+                text += f"📉 {expense['amount']} руб. ({expense['project']}){category_text}\n"
+                text += f"   {expense['description']} — {expense['date']}\n\n"
+            
+            text += f"💸 <b>Итого: {quarter_data['total_amount']} руб.</b>"
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+        return
+    
+    # Просмотр приходов за год
+    if re.search(r"(покажи приходы за год|приходы за год|доходы за год|покажи доходы за год)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра приходов за год: {user_text}")
+        
+        # Проверяем, есть ли указание проекта
+        project_match = re.search(r"проект[а]?\s+([а-яёa-z0-9\s]+)", user_text, re.I)
+        project = project_match.group(1).strip() if project_match else None
+        
+        year_data = finances.get_income_for_year(project=project)
+        
+        if not year_data['income_list']:
+            project_text = f" по проекту '{project}'" if project else ""
+            await update.message.reply_text(f"Приходов за {year_data['period']} год{project_text} нет.")
+        else:
+            text = f"💰 Приходы за {year_data['period']} год"
+            if project:
+                text += f" по проекту '{project}'"
+            text += f":\n\n"
+            
+            for income in year_data['income_list']:
+                text += f"📈 {income['amount']} руб. ({income['project']})\n"
+                text += f"   {income['description']} — {income['date']}\n\n"
+            
+            text += f"💵 <b>Итого: {year_data['total_amount']} руб.</b>"
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+        return
+    
+    # Просмотр расходов за год
+    if re.search(r"(покажи расходы за год|расходы за год|покажи траты за год|траты за год)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду просмотра расходов за год: {user_text}")
+        
+        # Проверяем, есть ли указание проекта
+        project_match = re.search(r"проект[а]?\s+([а-яёa-z0-9\s]+)", user_text, re.I)
+        project = project_match.group(1).strip() if project_match else None
+        
+        year_data = finances.get_expense_for_year(project=project)
+        
+        if not year_data['expense_list']:
+            project_text = f" по проекту '{project}'" if project else ""
+            await update.message.reply_text(f"Расходов за {year_data['period']} год{project_text} нет.")
+        else:
+            text = f"💸 Расходы за {year_data['period']} год"
+            if project:
+                text += f" по проекту '{project}'"
+            text += f":\n\n"
+            
+            for expense in year_data['expense_list']:
+                category_text = f" [{expense.get('category', 'без категории')}]" if expense.get('category') else ""
+                text += f"📉 {expense['amount']} руб. ({expense['project']}){category_text}\n"
+                text += f"   {expense['description']} — {expense['date']}\n\n"
+            
+            text += f"💸 <b>Итого: {year_data['total_amount']} руб.</b>"
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+        return
+    
     # Если не задача и не финансы — fallback на GPT-ответ
     reply = await ask_openai(user_text)
     await update.message.reply_text(reply)
