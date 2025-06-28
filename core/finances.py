@@ -4,11 +4,19 @@ import os
 from datetime import datetime
 import gspread
 import traceback
+import uuid
 
 operations = []
 FIN_FILE = 'finances.json'
 SHEET_ID = '10Tu5b40FPKrDi8M7sXTv8SUAbN2c6UKmJGBhsCK_u94'
 SHEET_NAME = 'Финансы'
+
+# --- Новые структуры для ВЭД и учёта документов ---
+payments = []  # список платежей
+purchases = []  # список закупок
+ved_documents = []  # список документов
+
+VED_FILE = 'ved_data.json'
 
 # --- Persistence ---
 def save_finances():
@@ -128,4 +136,141 @@ def month_name(mm):
         '01': 'янв', '02': 'фев', '03': 'мар', '04': 'апр', '05': 'мая', '06': 'июн',
         '07': 'июл', '08': 'авг', '09': 'сен', '10': 'окт', '11': 'ноя', '12': 'дек'
     }
-    return months.get(mm, mm) 
+    return months.get(mm, mm)
+
+def get_report_by_project(period=None):
+    """Вернуть отчёты по каждому проекту за период."""
+    projects = set(op['project'] for op in operations)
+    reports = {}
+    for project in projects:
+        reports[project] = get_report(period=period, project=project)
+    return reports
+
+def get_total_balance(project=None):
+    """Вернуть чистый остаток (доходы - расходы) по всем операциям или по проекту."""
+    income = sum(op['amount'] for op in operations if op['type'] == 'income' and (not project or op['project'] == project))
+    expense = sum(op['amount'] for op in operations if op['type'] == 'expense' and (not project or op['project'] == project))
+    return income - expense
+
+def save_ved():
+    data = {
+        'payments': payments,
+        'purchases': purchases,
+        'ved_documents': ved_documents
+    }
+    with open(VED_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def load_ved():
+    global payments, purchases, ved_documents
+    if os.path.exists(VED_FILE):
+        with open(VED_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            payments = data.get('payments', [])
+            purchases = data.get('purchases', [])
+            ved_documents = data.get('ved_documents', [])
+
+load_ved()
+
+# --- Типы документов ---
+VED_DOC_TYPES = ['накладная', 'упд', 'гтд', 'счёт', 'контракт', 'акт']
+
+# --- Добавление платежа ---
+def add_payment(amount, date, direction, country, project, counterparty, purpose, purchases_ids=None):
+    """
+    direction: 'in' (входящий) или 'out' (исходящий)
+    country: 'RU' или 'INT' (Россия или за границу)
+    purchases_ids: список id закупок (может быть пустым)
+    """
+    payment = {
+        'id': str(uuid.uuid4()),
+        'amount': amount,
+        'date': date,
+        'direction': direction,
+        'country': country,
+        'project': project,
+        'counterparty': counterparty,
+        'purpose': purpose,
+        'purchases_ids': purchases_ids or [],
+        'documents_ids': [],  # будут добавляться позже
+        'closed': False
+    }
+    payments.append(payment)
+    save_ved()
+    return payment
+
+# --- Добавление закупки ---
+def add_purchase(name, amount, date, payment_ids=None):
+    purchase = {
+        'id': str(uuid.uuid4()),
+        'name': name,
+        'amount': amount,
+        'date': date,
+        'payment_ids': payment_ids or [],
+        'documents_ids': []
+    }
+    purchases.append(purchase)
+    save_ved()
+    return purchase
+
+# --- Добавление документа ---
+def add_ved_document(doc_type, number, date, payment_ids=None, purchase_ids=None, file_url=None):
+    doc = {
+        'id': str(uuid.uuid4()),
+        'type': doc_type,
+        'number': number,
+        'date': date,
+        'payment_ids': payment_ids or [],
+        'purchase_ids': purchase_ids or [],
+        'file_url': file_url,
+        'received': bool(file_url)
+    }
+    ved_documents.append(doc)
+    save_ved()
+    return doc
+
+# --- Поиск платежей, закупок, документов ---
+def find_payment_by_id(payment_id):
+    return next((p for p in payments if p['id'] == payment_id), None)
+
+def find_purchase_by_id(purchase_id):
+    return next((p for p in purchases if p['id'] == purchase_id), None)
+
+def find_document_by_id(doc_id):
+    return next((d for d in ved_documents if d['id'] == doc_id), None)
+
+# --- Получение обязательных документов по типу платежа ---
+def get_required_docs_for_payment(payment):
+    if payment['direction'] == 'in':
+        # Входящий платёж (платили мне)
+        return ['накладная/упд', 'счёт', 'контракт', 'акт']
+    elif payment['direction'] == 'out':
+        if payment['country'] == 'RU':
+            return ['накладная/упд', 'счёт', 'контракт', 'акт']
+        else:
+            return ['гтд', 'счёт', 'контракт', 'акт']
+    return []
+
+# --- Проверка закрытости платежа ---
+def is_payment_closed(payment):
+    required = get_required_docs_for_payment(payment)
+    docs = [find_document_by_id(doc_id) for doc_id in payment['documents_ids']]
+    doc_types = [d['type'] for d in docs if d]
+    # Для накладная/упд или гтд — достаточно одного из них
+    if 'накладная/упд' in required:
+        if not any(t in doc_types for t in ['накладная', 'упд']):
+            return False
+    if 'гтд' in required:
+        if 'гтд' not in doc_types:
+            return False
+    # Остальные — все должны быть
+    for t in required:
+        if t in ['накладная/упд', 'гтд']:
+            continue
+        if t not in doc_types:
+            return False
+    return True
+
+# --- Поиск незакрытых платежей ---
+def get_unclosed_payments():
+    return [p for p in payments if not is_payment_closed(p)] 

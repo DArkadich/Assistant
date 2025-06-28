@@ -101,9 +101,19 @@ async def send_daily_summary(update: Update):
     # Финансы (за сегодня)
     report = finances.get_report(period=today)
     finance_text = f"Доход: {report['income']}, Расход: {report['expense']}, Прибыль: {report['profit']}"
+    # --- Чистый остаток общий ---
+    total_balance = finances.get_total_balance()
+    finance_text += f"\nЧистый остаток: {total_balance}"
+    # --- Разметка по проектам ---
+    project_reports = finances.get_report_by_project(period=today)
+    if project_reports:
+        finance_text += "\n\n<b>По проектам:</b>"
+        for project, rep in project_reports.items():
+            balance = finances.get_total_balance(project=project)
+            finance_text += f"\n- {project}: Доход {rep['income']}, Расход {rep['expense']}, Прибыль {rep['profit']}, Остаток {balance}"
     # Итог
     summary = f"🗓️ План на сегодня:\n{tasks_text}\n\n🎯 Цели:\n{goals_text}\n\n💰 Финансы за сегодня:\n{finance_text}"
-    await update.message.reply_text(summary)
+    await update.message.reply_text(summary, parse_mode='HTML')
 
 async def send_weekly_summary(update: Update):
     from core import calendar, planner, finances
@@ -157,6 +167,16 @@ async def send_weekly_summary(update: Update):
     period = today.strftime("%Y-%m")
     report = finances.get_report(period=period)
     finance_text = f"Доход: {report['income']}, Расход: {report['expense']}, Прибыль: {report['profit']}"
+    # --- Чистый остаток общий ---
+    total_balance = finances.get_total_balance()
+    finance_text += f"\nЧистый остаток: {total_balance}"
+    # --- Разметка по проектам ---
+    project_reports = finances.get_report_by_project(period=period)
+    if project_reports:
+        finance_text += "\n\n<b>По проектам:</b>"
+        for project, rep in project_reports.items():
+            balance = finances.get_total_balance(project=project)
+            finance_text += f"\n- {project}: Доход {rep['income']}, Расход {rep['expense']}, Прибыль {rep['profit']}, Остаток {balance}"
 
     # Формируем итоговый текст
     summary = "🗓️ <b>План на неделю</b>\n"
@@ -210,6 +230,16 @@ async def send_daily_summary_to_chat(app, chat_id):
         goals_text = "Нет целей."
     report = finances.get_report(period=today)
     finance_text = f"Доход: {report['income']}, Расход: {report['expense']}, Прибыль: {report['profit']}"
+    # --- Чистый остаток общий ---
+    total_balance = finances.get_total_balance()
+    finance_text += f"\nЧистый остаток: {total_balance}"
+    # --- Разметка по проектам ---
+    project_reports = finances.get_report_by_project(period=today)
+    if project_reports:
+        finance_text += "\n\n<b>По проектам:</b>"
+        for project, rep in project_reports.items():
+            balance = finances.get_total_balance(project=project)
+            finance_text += f"\n- {project}: Доход {rep['income']}, Расход {rep['expense']}, Прибыль {rep['profit']}, Остаток {balance}"
     summary = f"🗓️ План на сегодня:\n{tasks_text}\n\n🎯 Цели:\n{goals_text}\n\n💰 Финансы за сегодня:\n{finance_text}"
     await app.bot.send_message(chat_id=chat_id, text=summary)
 
