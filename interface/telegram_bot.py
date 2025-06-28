@@ -816,6 +816,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"Платёж с ID {payment_id} не найден.")
         return
     
+    # Привязка документа к платежу
+    if re.search(r"привяжи документ.*к платежу", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду привязки документа: {user_text}")
+        # Ищем ID документа и платежа
+        doc_id_match = re.search(r"документ ([a-f0-9-]{36})", user_text)
+        payment_id_match = re.search(r"платежу ([a-f0-9-]{36})", user_text)
+        
+        if doc_id_match and payment_id_match:
+            doc_id = doc_id_match.group(1)
+            payment_id = payment_id_match.group(1)
+            
+            doc = finances.find_document_by_id(doc_id)
+            payment = finances.find_payment_by_id(payment_id)
+            
+            if not doc:
+                await update.message.reply_text(f"Документ с ID {doc_id} не найден.")
+                return
+            if not payment:
+                await update.message.reply_text(f"Платёж с ID {payment_id} не найден.")
+                return
+            
+            # Добавляем связь
+            if payment_id not in doc['payment_ids']:
+                doc['payment_ids'].append(payment_id)
+            if doc_id not in payment['documents_ids']:
+                payment['documents_ids'].append(doc_id)
+            
+            finances.save_ved()
+            await update.message.reply_text(f"Документ {doc['type']} №{doc['number']} привязан к платежу {payment['counterparty']}")
+        else:
+            await update.message.reply_text("Формат: 'Привяжи документ [ID_документа] к платежу [ID_платежа]'")
+        return
+    
     # --- Финансы через естественный язык ---
     fin_intent = await parse_finance_intent(user_text)
     if fin_intent:
