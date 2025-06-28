@@ -409,14 +409,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if fin_intent:
         intent = fin_intent.get("intent")
         if intent in ("income", "expense"):
-            # Приоритет парсинга даты через dateparser
             import dateparser
             date_from_gpt = fin_intent.get("date")
             date_from_text = dateparser.parse(user_text, languages=['ru'])
             if date_from_text:
                 date_from_text = date_from_text.strftime('%Y-%m-%d')
-            # Если GPT не вернул дату или она отличается от dateparser — используем dateparser
-            if (not date_from_gpt and date_from_text) or (date_from_gpt and date_from_text and date_from_gpt != date_from_text):
+            print(f"[DEBUG] date_from_gpt: {date_from_gpt}, date_from_text: {date_from_text}", flush=True)
+            # Если dateparser распознал дату — всегда используем её
+            if date_from_text:
                 fin_intent['date'] = date_from_text
             # Если всё равно нет даты — уточнить у пользователя
             if not fin_intent.get('date'):
