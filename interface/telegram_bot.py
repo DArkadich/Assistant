@@ -355,10 +355,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"Событие '{title}' на {date} не найдено.")
         return
-    # Массовое удаление событий по диапазону
-    m = re.match(r"удали все события из календаря за ([^\n]+)", user_text, re.I)
+    # Массовое удаление событий/встреч/мероприятий/ивентов по диапазону
+    m = re.match(r"удали все (события|встречи|мероприятия|ивенты|event[ыe]?|событие) ?(из календаря)? (за|на) ([^\n]+)", user_text, re.I)
     if m:
-        phrase = m.group(1).strip()
+        phrase = m.group(4).strip()
         date_list = calendar.get_date_range_from_phrase(phrase)
         if not date_list:
             await update.message.reply_text(f"Не удалось определить диапазон дат по фразе: '{phrase}'")
