@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+import dateparser
 
 # Google Calendar API setup
 SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -270,4 +271,49 @@ def update_google_calendar_event(event_id, new_title=None, new_time=None):
             return False
     except Exception as e:
         print(f"Ошибка при обновлении события: {e}")
-        return False 
+        return False
+
+def get_date_range_from_phrase(phrase):
+    """Вернуть список дат (ГГГГ-ММ-ДД) по естественной фразе."""
+    today = datetime.now().date()
+    phrase = phrase.lower().strip()
+    if 'прошл' in phrase and 'недел' in phrase:
+        # Прошлая неделя (понедельник-воскресенье)
+        start = today - timedelta(days=today.weekday() + 7)
+        end = start + timedelta(days=6)
+    elif 'следующ' in phrase and 'недел' in phrase:
+        # Следующая неделя
+        start = today + timedelta(days=(7 - today.weekday()))
+        end = start + timedelta(days=6)
+    elif 'сегодня' in phrase:
+        start = end = today
+    elif 'завтра' in phrase:
+        start = end = today + timedelta(days=1)
+    elif 'вчера' in phrase:
+        start = end = today - timedelta(days=1)
+    else:
+        # Попробуем через dateparser
+        dt = dateparser.parse(phrase, languages=['ru'])
+        if dt:
+            start = end = dt.date()
+        else:
+            return []
+    # Список дат в формате ГГГГ-ММ-ДД
+    dates = [(start + timedelta(days=i)).strftime('%Y-%m-%d') for i in range((end - start).days + 1)]
+    return dates
+
+def delete_all_google_calendar_events_in_range(date_list):
+    """Удалить все события Google Calendar за список дат."""
+    service = get_google_calendar_service()
+    if not service:
+        return 0
+    count = 0
+    for date in date_list:
+        events = get_google_calendar_events(date)
+        for event in events:
+            try:
+                service.events().delete(calendarId=MY_CALENDAR_ID, eventId=event['id']).execute()
+                count += 1
+            except Exception as e:
+                print(f"Ошибка при удалении события {event['id']}: {e}")
+    return count 

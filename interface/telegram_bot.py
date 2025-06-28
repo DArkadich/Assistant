@@ -355,6 +355,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"Событие '{title}' на {date} не найдено.")
         return
+    # Массовое удаление событий по диапазону
+    m = re.match(r"удали все события из календаря за ([^\n]+)", user_text, re.I)
+    if m:
+        phrase = m.group(1).strip()
+        date_list = calendar.get_date_range_from_phrase(phrase)
+        if not date_list:
+            await update.message.reply_text(f"Не удалось определить диапазон дат по фразе: '{phrase}'")
+            return
+        count = calendar.delete_all_google_calendar_events_in_range(date_list)
+        await update.message.reply_text(f"Удалено {count} событий из Google Calendar за: {', '.join(date_list)}")
+        return
     # --- Сводка по естественным фразам ---
     if re.search(r"(что у меня|план на сегодня|утренняя сводка|дай сводку|сегодня)", user_text, re.I):
         await send_daily_summary(update)
