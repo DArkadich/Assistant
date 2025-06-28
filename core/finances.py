@@ -444,7 +444,7 @@ def add_purchase(name, amount, date, payment_ids=None):
     return purchase
 
 # --- Добавление документа ---
-def add_document(doc_type, number, date, payment_ids=None, purchase_ids=None, file_url=None):
+def add_document(doc_type, number, date, payment_ids=None, purchase_ids=None, file_url=None, description=None, counterparty_name=None, amount=None, keywords=None):
     doc = {
         'id': str(uuid.uuid4()),
         'type': doc_type,
@@ -453,7 +453,11 @@ def add_document(doc_type, number, date, payment_ids=None, purchase_ids=None, fi
         'payment_ids': payment_ids or [],
         'purchase_ids': purchase_ids or [],
         'file_url': file_url,
-        'received': bool(file_url)
+        'received': bool(file_url),
+        'description': description,  # Описание документа
+        'counterparty_name': counterparty_name,  # Название контрагента
+        'amount': amount,  # Сумма документа
+        'keywords': keywords or []  # Ключевые слова для поиска
     }
     documents.append(doc)
     
@@ -556,4 +560,95 @@ def delete_payment(payment_id):
     
     # Сохраняем изменения
     save_doc()
-    return True 
+    return True
+
+# --- Функции поиска документов ---
+def search_documents_by_counterparty(counterparty_name):
+    """Поиск документов по названию контрагента."""
+    return [doc for doc in documents if doc.get('counterparty_name') and counterparty_name.lower() in doc['counterparty_name'].lower()]
+
+def search_documents_by_amount(min_amount=None, max_amount=None):
+    """Поиск документов по сумме."""
+    results = []
+    for doc in documents:
+        if doc.get('amount'):
+            if min_amount and max_amount:
+                if min_amount <= doc['amount'] <= max_amount:
+                    results.append(doc)
+            elif min_amount:
+                if doc['amount'] >= min_amount:
+                    results.append(doc)
+            elif max_amount:
+                if doc['amount'] <= max_amount:
+                    results.append(doc)
+    return results
+
+def search_documents_by_keywords(keywords):
+    """Поиск документов по ключевым словам."""
+    if isinstance(keywords, str):
+        keywords = [keywords.lower()]
+    else:
+        keywords = [k.lower() for k in keywords]
+    
+    results = []
+    for doc in documents:
+        # Поиск в ключевых словах
+        doc_keywords = [k.lower() for k in doc.get('keywords', [])]
+        if any(kw in doc_keywords for kw in keywords):
+            results.append(doc)
+            continue
+        
+        # Поиск в описании
+        if doc.get('description') and any(kw in doc['description'].lower() for kw in keywords):
+            results.append(doc)
+            continue
+        
+        # Поиск в названии контрагента
+        if doc.get('counterparty_name') and any(kw in doc['counterparty_name'].lower() for kw in keywords):
+            results.append(doc)
+            continue
+    
+    return results
+
+def search_documents_by_date_range(start_date=None, end_date=None):
+    """Поиск документов по диапазону дат."""
+    from datetime import datetime
+    
+    results = []
+    for doc in documents:
+        doc_date = datetime.strptime(doc['date'], '%Y-%m-%d').date()
+        
+        if start_date and end_date:
+            if start_date <= doc_date <= end_date:
+                results.append(doc)
+        elif start_date:
+            if doc_date >= start_date:
+                results.append(doc)
+        elif end_date:
+            if doc_date <= end_date:
+                results.append(doc)
+    
+    return results
+
+def get_documents_summary():
+    """Получить сводку по документам."""
+    total_docs = len(documents)
+    docs_by_type = {}
+    total_amount = 0
+    
+    for doc in documents:
+        # Подсчет по типам
+        doc_type = doc['type']
+        docs_by_type[doc_type] = docs_by_type.get(doc_type, 0) + 1
+        
+        # Подсчет общей суммы
+        if doc.get('amount'):
+            total_amount += doc['amount']
+    
+    return {
+        'total_documents': total_docs,
+        'by_type': docs_by_type,
+        'total_amount': total_amount,
+        'with_files': len([d for d in documents if d.get('file_url')]),
+        'without_files': len([d for d in documents if not d.get('file_url')])
+    } 

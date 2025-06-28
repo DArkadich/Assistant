@@ -1151,6 +1151,116 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(text, parse_mode='HTML')
         return
     
+    # Поиск документов по контрагенту
+    if re.search(r"(найди документы.*контрагент|поиск.*контрагент|документы.*контрагент)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду поиска документов по контрагенту: {user_text}")
+        
+        # Извлекаем название контрагента
+        counterparty_match = re.search(r"контрагент[а]?\s+([а-яёa-z0-9\s]+)", user_text, re.I)
+        if counterparty_match:
+            counterparty_name = counterparty_match.group(1).strip()
+            found_docs = finances.search_documents_by_counterparty(counterparty_name)
+            
+            if not found_docs:
+                await update.message.reply_text(f"Документы контрагента '{counterparty_name}' не найдены.")
+            else:
+                text = f"📄 Документы контрагента '{counterparty_name}' ({len(found_docs)}):\n\n"
+                for doc in found_docs:
+                    text += f"📋 {doc['type'].title()} №{doc['number']} от {doc['date']}\n"
+                    text += f"   ID: {doc['id']}\n"
+                    if doc.get('amount'):
+                        text += f"   Сумма: {doc['amount']} руб.\n"
+                    if doc.get('description'):
+                        text += f"   Описание: {doc['description']}\n"
+                    if doc.get('file_url'):
+                        text += f"   📎 Файл: {doc['file_url']}\n"
+                    text += "\n"
+                
+                await update.message.reply_text(text)
+        else:
+            await update.message.reply_text("Формат: 'Найди документы контрагента [название]'")
+        return
+    
+    # Поиск документов по ключевым словам
+    if re.search(r"(найди документы.*про|поиск.*документы.*про|документы.*про)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду поиска документов по ключевым словам: {user_text}")
+        
+        # Извлекаем ключевые слова
+        keywords_match = re.search(r"про\s+([а-яёa-z0-9\s]+)", user_text, re.I)
+        if keywords_match:
+            keywords = keywords_match.group(1).strip().split()
+            found_docs = finances.search_documents_by_keywords(keywords)
+            
+            if not found_docs:
+                await update.message.reply_text(f"Документы по ключевым словам '{', '.join(keywords)}' не найдены.")
+            else:
+                text = f"🔍 Документы по ключевым словам '{', '.join(keywords)}' ({len(found_docs)}):\n\n"
+                for doc in found_docs:
+                    text += f"📋 {doc['type'].title()} №{doc['number']} от {doc['date']}\n"
+                    text += f"   ID: {doc['id']}\n"
+                    if doc.get('counterparty_name'):
+                        text += f"   Контрагент: {doc['counterparty_name']}\n"
+                    if doc.get('amount'):
+                        text += f"   Сумма: {doc['amount']} руб.\n"
+                    if doc.get('description'):
+                        text += f"   Описание: {doc['description']}\n"
+                    text += "\n"
+                
+                await update.message.reply_text(text)
+        else:
+            await update.message.reply_text("Формат: 'Найди документы про [ключевые слова]'")
+        return
+    
+    # Поиск документов по сумме
+    if re.search(r"(найди документы.*сумма|документы.*сумма|поиск.*сумма)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду поиска документов по сумме: {user_text}")
+        
+        # Извлекаем сумму
+        amount_match = re.search(r"сумма[а]?\s+(?:от\s+)?(\d+)(?:\s+до\s+(\d+))?", user_text, re.I)
+        if amount_match:
+            min_amount = int(amount_match.group(1))
+            max_amount = int(amount_match.group(2)) if amount_match.group(2) else None
+            
+            found_docs = finances.search_documents_by_amount(min_amount, max_amount)
+            
+            if not found_docs:
+                range_text = f"от {min_amount}" + (f" до {max_amount}" if max_amount else "")
+                await update.message.reply_text(f"Документы со суммой {range_text} руб. не найдены.")
+            else:
+                range_text = f"от {min_amount}" + (f" до {max_amount}" if max_amount else "")
+                text = f"💰 Документы со суммой {range_text} руб. ({len(found_docs)}):\n\n"
+                for doc in found_docs:
+                    text += f"📋 {doc['type'].title()} №{doc['number']} от {doc['date']}\n"
+                    text += f"   ID: {doc['id']}\n"
+                    text += f"   Сумма: {doc['amount']} руб.\n"
+                    if doc.get('counterparty_name'):
+                        text += f"   Контрагент: {doc['counterparty_name']}\n"
+                    text += "\n"
+                
+                await update.message.reply_text(text)
+        else:
+            await update.message.reply_text("Формат: 'Найди документы сумма от 100000 до 500000' или 'Найди документы сумма от 100000'")
+        return
+    
+    # Сводка по документам
+    if re.search(r"(сводка.*документы|статистика.*документы|документы.*статистика)", user_text, re.I):
+        print(f"[DEBUG] Обрабатываю команду сводки по документам: {user_text}")
+        
+        summary = finances.get_documents_summary()
+        
+        text = f"📊 Сводка по документам:\n\n"
+        text += f"📄 Всего документов: {summary['total_documents']}\n"
+        text += f"📎 С файлами: {summary['with_files']}\n"
+        text += f"📄 Без файлов: {summary['without_files']}\n"
+        text += f"💰 Общая сумма: {summary['total_amount']} руб.\n\n"
+        
+        text += f"📋 По типам:\n"
+        for doc_type, count in summary['by_type'].items():
+            text += f"   {doc_type.title()}: {count}\n"
+        
+        await update.message.reply_text(text)
+        return
+    
     # Если не задача и не финансы — fallback на GPT-ответ
     reply = await ask_openai(user_text)
     await update.message.reply_text(reply)
