@@ -11,6 +11,11 @@ import pytz
 import dateparser
 import asyncio
 import threading
+from core.calendar import calendar_manager
+from core.finances import *
+from core.planner import *
+from core.drive_manager import drive_manager
+from core.rag_system import rag_system
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -1261,6 +1266,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text)
         return
     
+    # RAG поиск документов
+    if re.search(r"(найди документ|поиск документов|семантический поиск|rag поиск)", user_text, re.I):
+        await handle_rag_search(update, context)
+        return
+    
+    # Поиск по типу документа
+    if re.search(r"(найди по типу|поиск по типу|документы типа)", user_text, re.I):
+        await handle_search_by_type(update, context)
+        return
+    
+    # Поиск по контрагенту
+    if re.search(r"(найди по контрагенту|поиск по контрагенту|документы контрагента)", user_text, re.I):
+        await handle_search_by_counterparty(update, context)
+        return
+    
+    # Статистика RAG системы
+    if re.search(r"(статистика rag|rag статистика|статус rag)", user_text, re.I):
+        await handle_rag_stats(update, context)
+        return
+    
     # Если не задача и не финансы — fallback на GPT-ответ
     reply = await ask_openai(user_text)
     await update.message.reply_text(reply)
@@ -1283,4 +1308,196 @@ def run_bot():
     start_scheduler(app)
     start_calendar_polling(app)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.run_polling() 
+    app.run_polling()
+
+# --- RAG функции ---
+async def handle_rag_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка семантического поиска документов."""
+    user_text = update.message.text
+    
+    # Извлекаем запрос для поиска
+    query_match = re.search(r"(найди документ|поиск документов|семантический поиск|rag поиск)\s+(.+)", user_text, re.I)
+    if not query_match:
+        await update.message.reply_text(
+            "🔍 <b>Семантический поиск документов</b>\n\n"
+            "Используйте:\n"
+            "• 'Найди документ [запрос]' - поиск по содержимому\n"
+            "• 'Поиск документов [запрос]' - семантический поиск\n"
+            "• 'RAG поиск [запрос]' - векторный поиск\n\n"
+            "Примеры:\n"
+            "• Найди документ про оплату услуг\n"
+            "• Поиск документов контракт разработка\n"
+            "• RAG поиск накладная поставка товаров",
+            parse_mode='HTML'
+        )
+        return
+    
+    query = query_match.group(2).strip()
+    
+    try:
+        # Выполняем поиск
+        results = rag_system.search_documents(query, n_results=5)
+        
+        if not results:
+            await update.message.reply_text(f"🔍 По запросу '{query}' документы не найдены.")
+            return
+        
+        # Формируем ответ
+        text = f"🔍 <b>Результаты поиска по запросу '{query}':</b>\n\n"
+        
+        for i, doc in enumerate(results, 1):
+            metadata = doc.get('metadata', {})
+            distance = doc.get('distance', 0)
+            relevance = max(0, 100 - int(distance * 100))  # Конвертируем расстояние в релевантность
+            
+            text += f"📋 <b>{i}. {metadata.get('type', 'Документ').title()}</b>\n"
+            text += f"   Контрагент: {metadata.get('counterparty_name', 'Не указан')}\n"
+            text += f"   Сумма: {metadata.get('amount', 'Не указана')} руб.\n"
+            text += f"   Дата: {metadata.get('date', 'Не указана')}\n"
+            text += f"   Релевантность: {relevance}%\n"
+            text += f"   ID: {doc['id']}\n\n"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка поиска: {e}")
+
+async def handle_search_by_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка поиска документов по типу."""
+    user_text = update.message.text
+    
+    # Извлекаем тип документа
+    type_match = re.search(r"(найди по типу|поиск по типу|документы типа)\s+(накладная|упд|гтд|счёт|контракт|акт)(?:\s+(.+))?", user_text, re.I)
+    if not type_match:
+        await update.message.reply_text(
+            "📋 <b>Поиск документов по типу</b>\n\n"
+            "Используйте:\n"
+            "• 'Найди по типу [тип] [запрос]' - поиск документов определенного типа\n"
+            "• 'Поиск по типу [тип] [запрос]' - семантический поиск по типу\n\n"
+            "Типы документов:\n"
+            "• накладная, упд, гтд, счёт, контракт, акт\n\n"
+            "Примеры:\n"
+            "• Найди по типу контракт разработка\n"
+            "• Поиск по типу накладная поставка",
+            parse_mode='HTML'
+        )
+        return
+    
+    doc_type = type_match.group(2).lower()
+    query = type_match.group(3).strip() if type_match.group(3) else ""
+    
+    try:
+        # Выполняем поиск по типу
+        results = rag_system.search_by_type(doc_type, query, n_results=5)
+        
+        if not results:
+            type_text = f" типа '{doc_type}'"
+            query_text = f" по запросу '{query}'" if query else ""
+            await update.message.reply_text(f"📋 Документы{type_text}{query_text} не найдены.")
+            return
+        
+        # Формируем ответ
+        text = f"📋 <b>Документы типа '{doc_type}'"
+        if query:
+            text += f" по запросу '{query}'"
+        text += f":</b>\n\n"
+        
+        for i, doc in enumerate(results, 1):
+            metadata = doc.get('metadata', {})
+            distance = doc.get('distance', 0)
+            relevance = max(0, 100 - int(distance * 100))
+            
+            text += f"📄 <b>{i}. {metadata.get('type', 'Документ').title()}</b>\n"
+            text += f"   Контрагент: {metadata.get('counterparty_name', 'Не указан')}\n"
+            text += f"   Сумма: {metadata.get('amount', 'Не указана')} руб.\n"
+            text += f"   Дата: {metadata.get('date', 'Не указана')}\n"
+            text += f"   Релевантность: {relevance}%\n"
+            text += f"   ID: {doc['id']}\n\n"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка поиска: {e}")
+
+async def handle_search_by_counterparty(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка поиска документов по контрагенту."""
+    user_text = update.message.text
+    
+    # Извлекаем название контрагента
+    counterparty_match = re.search(r"(найди по контрагенту|поиск по контрагенту|документы контрагента)\s+([а-яёa-z0-9\s]+)(?:\s+(.+))?", user_text, re.I)
+    if not counterparty_match:
+        await update.message.reply_text(
+            "🏢 <b>Поиск документов по контрагенту</b>\n\n"
+            "Используйте:\n"
+            "• 'Найди по контрагенту [название] [запрос]' - поиск документов контрагента\n"
+            "• 'Поиск по контрагенту [название] [запрос]' - семантический поиск\n\n"
+            "Примеры:\n"
+            "• Найди по контрагенту ООО Рога и Копыта\n"
+            "• Поиск по контрагенту ИП Иванов контракт",
+            parse_mode='HTML'
+        )
+        return
+    
+    counterparty = counterparty_match.group(2).strip()
+    query = counterparty_match.group(3).strip() if counterparty_match.group(3) else ""
+    
+    try:
+        # Выполняем поиск по контрагенту
+        results = rag_system.search_by_counterparty(counterparty, query, n_results=5)
+        
+        if not results:
+            query_text = f" по запросу '{query}'" if query else ""
+            await update.message.reply_text(f"🏢 Документы контрагента '{counterparty}'{query_text} не найдены.")
+            return
+        
+        # Формируем ответ
+        text = f"🏢 <b>Документы контрагента '{counterparty}'"
+        if query:
+            text += f" по запросу '{query}'"
+        text += f":</b>\n\n"
+        
+        for i, doc in enumerate(results, 1):
+            metadata = doc.get('metadata', {})
+            distance = doc.get('distance', 0)
+            relevance = max(0, 100 - int(distance * 100))
+            
+            text += f"📄 <b>{i}. {metadata.get('type', 'Документ').title()}</b>\n"
+            text += f"   Сумма: {metadata.get('amount', 'Не указана')} руб.\n"
+            text += f"   Дата: {metadata.get('date', 'Не указана')}\n"
+            text += f"   Проект: {metadata.get('project', 'Не указан')}\n"
+            text += f"   Релевантность: {relevance}%\n"
+            text += f"   ID: {doc['id']}\n\n"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка поиска: {e}")
+
+async def handle_rag_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка запроса статистики RAG системы."""
+    try:
+        stats = rag_system.get_collection_stats()
+        
+        if 'error' in stats:
+            await update.message.reply_text(f"❌ Ошибка получения статистики: {stats['error']}")
+            return
+        
+        text = f"📊 <b>Статистика RAG системы:</b>\n\n"
+        text += f"📄 Всего документов: {stats['total_documents']}\n"
+        text += f"📁 Коллекция: {stats['collection_name']}\n"
+        text += f"🟢 Статус: {stats['status']}\n\n"
+        
+        if stats['total_documents'] > 0:
+            text += f"✅ RAG система активна и готова к поиску\n"
+            text += f"🔍 Используйте команды:\n"
+            text += f"• 'Найди документ [запрос]'\n"
+            text += f"• 'Найди по типу [тип] [запрос]'\n"
+            text += f"• 'Найди по контрагенту [название] [запрос]'"
+        else:
+            text += f"⚠️ Коллекция пуста\n"
+            text += f"📝 Добавьте документы для активации поиска"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения статистики: {e}")

@@ -6,9 +6,13 @@ import gspread
 import traceback
 import uuid
 from google.oauth2.service_account import Credentials
+import time
+import random
 
 # Импортируем менеджер Google Drive
 from .drive_manager import drive_manager
+# Импортируем RAG систему
+from .rag_system import rag_system
 
 operations = []
 FIN_FILE = 'finances.json'
@@ -448,147 +452,88 @@ def add_purchase(name, amount, date, payment_ids=None):
     return purchase
 
 # --- Добавление документа ---
-def add_document(doc_type, number, date, payment_ids=None, purchase_ids=None, file_url=None, description=None, counterparty_name=None, amount=None, keywords=None, file_path=None):
-    """
-    Добавить документ с возможностью загрузки файла в Google Drive.
-    
-    Args:
-        file_path: Путь к локальному файлу для загрузки в Drive
-    """
-    # Если передан файл, загружаем его в Google Drive
-    drive_file_info = None
-    if file_path and os.path.exists(file_path):
-        try:
-            # Создаем папку для документа
-            folder_id = drive_manager.create_document_folder(doc_type, date)
-            
-            # Загружаем файл
-            file_name = f"{doc_type}_{number}_{date}.{file_path.split('.')[-1]}"
-            drive_file_info = drive_manager.upload_file(
-                file_path=file_path,
-                file_name=file_name,
-                folder_id=folder_id,
-                description=f"{doc_type.title()} №{number} от {date}"
-            )
-            
-            if drive_file_info:
-                file_url = drive_file_info['url']
-                print(f"✅ Файл загружен в Google Drive: {drive_file_info['url']}")
-            else:
-                print("❌ Ошибка загрузки файла в Google Drive")
-                
-        except Exception as e:
-            print(f"❌ Ошибка при работе с Google Drive: {e}")
-    
-    # Если не передан file_path, но есть file_url, извлекаем текст
-    extracted_text = None
-    if file_url and not file_path:
-        try:
-            # Пытаемся извлечь текст из файла в Drive
-            if 'drive.google.com' in file_url:
-                file_id = extract_file_id_from_url(file_url)
-                if file_id:
-                    extracted_text = drive_manager.extract_text_from_file(file_id)
+def add_document(doc_type, counterparty_name, amount, date, description, file_path=None, project=None):
+    """Добавить документ с поддержкой Google Drive и RAG."""
+    try:
+        # Генерируем уникальный ID
+        doc_id = f"{doc_type}_{int(time.time())}_{random.randint(1000, 9999)}"
+        
+        # Базовая информация о документе
+        document = {
+            'id': doc_id,
+            'type': doc_type,
+            'counterparty_name': counterparty_name,
+            'amount': amount,
+            'date': date,
+            'description': description,
+            'project': project,
+            'created_at': datetime.now().isoformat(),
+            'drive_file_id': None,
+            'extracted_text': None,
+            'keywords': []
+        }
+        
+        # Если есть файл, загружаем в Google Drive
+        if file_path and os.path.exists(file_path):
+            try:
+                # Загружаем файл в Drive
+                drive_file_id = drive_manager.upload_file(file_path, doc_id)
+                if drive_file_id:
+                    document['drive_file_id'] = drive_file_id
+                    
+                    # Извлекаем текст из файла
+                    extracted_text = drive_manager.extract_text_from_file(drive_file_id)
                     if extracted_text:
-                        print(f"✅ Текст извлечен из файла в Drive")
+                        document['extracted_text'] = extracted_text
+                        
+                        # Извлекаем ключевые слова
+                        keywords = drive_manager.extract_keywords(extracted_text)
+                        document['keywords'] = keywords
+                        
+                        print(f"✅ Файл загружен в Drive и обработан: {drive_file_id}")
+                    else:
+                        print("⚠️ Файл загружен, но не удалось извлечь текст")
+                else:
+                    print("❌ Ошибка загрузки файла в Drive")
+            except Exception as e:
+                print(f"❌ Ошибка работы с Drive: {e}")
+        
+        # Добавляем документ в JSON
+        documents.append(document)
+        save_doc()
+        
+        # Добавляем документ в RAG систему
+        try:
+            # Формируем контент для RAG
+            rag_content = f"{doc_type} {counterparty_name} {description}"
+            if document.get('extracted_text'):
+                rag_content += f" {document['extracted_text']}"
+            if document.get('keywords'):
+                rag_content += f" {' '.join(document['keywords'])}"
+            
+            # Метаданные для RAG
+            rag_metadata = {
+                'type': doc_type,
+                'counterparty_name': counterparty_name,
+                'amount': str(amount),
+                'date': date,
+                'project': project or '',
+                'drive_file_id': document.get('drive_file_id', ''),
+                'has_extracted_text': 'yes' if document.get('extracted_text') else 'no'
+            }
+            
+            # Добавляем в RAG систему
+            rag_system.add_document(doc_id, rag_content, rag_metadata)
+            print(f"✅ Документ добавлен в RAG систему")
+            
         except Exception as e:
-            print(f"❌ Ошибка извлечения текста: {e}")
-    
-    # Автоматически создаем описание, если его нет
-    if not description and extracted_text:
-        description = create_document_description(extracted_text, doc_type, number, date)
-    
-    # Автоматически извлекаем ключевые слова
-    if not keywords and extracted_text:
-        keywords = extract_keywords_from_text(extracted_text, doc_type)
-    
-    doc = {
-        'id': str(uuid.uuid4()),
-        'type': doc_type,
-        'number': number,
-        'date': date,
-        'payment_ids': payment_ids or [],
-        'purchase_ids': purchase_ids or [],
-        'file_url': file_url,
-        'received': bool(file_url),
-        'description': description,
-        'counterparty_name': counterparty_name,
-        'amount': amount,
-        'keywords': keywords or [],
-        'drive_file_id': drive_file_info['id'] if drive_file_info else None,
-        'drive_folder_id': drive_file_info.get('folder_id') if drive_file_info else None,
-        'extracted_text': extracted_text[:1000] if extracted_text else None  # Сохраняем первые 1000 символов
-    }
-    documents.append(doc)
-    
-    # Обновляем платежи, добавляя ID документа
-    for payment_id in doc['payment_ids']:
-        payment = find_payment_by_id(payment_id)
-        if payment:
-            if doc['id'] not in payment['documents_ids']:
-                payment['documents_ids'].append(doc['id'])
-    
-    # Обновляем закупки, добавляя ID документа
-    for purchase_id in doc['purchase_ids']:
-        purchase = find_purchase_by_id(purchase_id)
-        if purchase:
-            if doc['id'] not in purchase['documents_ids']:
-                purchase['documents_ids'].append(doc['id'])
-    
-    save_doc()
-    return doc
-
-def extract_file_id_from_url(url):
-    """Извлечь ID файла из URL Google Drive."""
-    import re
-    patterns = [
-        r'/file/d/([a-zA-Z0-9-_]+)',
-        r'id=([a-zA-Z0-9-_]+)',
-        r'/d/([a-zA-Z0-9-_]+)'
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    return None
-
-def create_document_description(text, doc_type, number, date):
-    """Создать описание документа на основе извлеченного текста."""
-    # Простая логика создания описания
-    lines = text.split('\n')[:10]  # Берем первые 10 строк
-    summary = ' '.join([line.strip() for line in lines if line.strip()])
-    
-    if len(summary) > 200:
-        summary = summary[:200] + "..."
-    
-    return f"{doc_type.title()} №{number} от {date}: {summary}"
-
-def extract_keywords_from_text(text, doc_type):
-    """Извлечь ключевые слова из текста документа."""
-    # Простая логика извлечения ключевых слов
-    keywords = []
-    
-    # Добавляем тип документа
-    keywords.append(doc_type)
-    
-    # Ищем суммы
-    import re
-    amounts = re.findall(r'\d{1,3}(?:\s\d{3})*(?:\sруб|\s₽|руб|₽)', text)
-    if amounts:
-        keywords.extend(amounts[:3])  # Максимум 3 суммы
-    
-    # Ищем даты
-    dates = re.findall(r'\d{1,2}[./]\d{1,2}[./]\d{2,4}', text)
-    if dates:
-        keywords.extend(dates[:2])  # Максимум 2 даты
-    
-    # Ищем организации (слова с заглавной буквы)
-    orgs = re.findall(r'[А-ЯЁ][а-яё]*(?:\s+[А-ЯЁ][а-яё]*)*\s+(?:ООО|ИП|АО|ЗАО)', text)
-    if orgs:
-        keywords.extend(orgs[:2])  # Максимум 2 организации
-    
-    return list(set(keywords))  # Убираем дубликаты
+            print(f"❌ Ошибка добавления в RAG: {e}")
+        
+        return doc_id
+        
+    except Exception as e:
+        print(f"❌ Ошибка добавления документа: {e}")
+        return None
 
 # --- Поиск платежей, закупок, документов ---
 def find_payment_by_id(payment_id):
@@ -763,4 +708,37 @@ def get_documents_summary():
         'total_amount': total_amount,
         'with_files': len([d for d in documents if d.get('file_url')]),
         'without_files': len([d for d in documents if not d.get('file_url')])
-    } 
+    }
+
+def delete_document(doc_id):
+    """Удалить документ и связанные файлы из Drive и RAG."""
+    doc = find_document_by_id(doc_id)
+    if not doc:
+        return False
+    
+    try:
+        # Удаляем файл из Google Drive, если есть
+        if doc.get('drive_file_id'):
+            try:
+                drive_manager.delete_file(doc['drive_file_id'])
+                print(f"✅ Файл удален из Google Drive: {doc['drive_file_id']}")
+            except Exception as e:
+                print(f"⚠️ Ошибка удаления файла из Drive: {e}")
+        
+        # Удаляем документ из RAG системы
+        try:
+            rag_system.delete_document(doc_id)
+            print(f"✅ Документ удален из RAG системы")
+        except Exception as e:
+            print(f"⚠️ Ошибка удаления из RAG: {e}")
+        
+        # Удаляем из JSON
+        documents.remove(doc)
+        save_doc()
+        
+        print(f"✅ Документ {doc_id} удален")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Ошибка удаления документа: {e}")
+        return False 
