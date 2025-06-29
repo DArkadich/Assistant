@@ -46,11 +46,14 @@ class ImageProcessor:
         # Конвертируем в оттенки серого
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
+        # Определяем и исправляем поворот
+        corrected_image = self._fix_rotation(gray)
+        
         # Увеличиваем размер изображения для лучшего распознавания
-        height, width = gray.shape
+        height, width = corrected_image.shape
         scale_factor = 2.0
         new_height, new_width = int(height * scale_factor), int(width * scale_factor)
-        resized = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+        resized = cv2.resize(corrected_image, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
         
         # Увеличиваем контраст с помощью CLAHE
         clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
@@ -72,6 +75,58 @@ class ImageProcessor:
         cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
         
         return cleaned
+    
+    def _fix_rotation(self, image: np.ndarray) -> np.ndarray:
+        """Определить и исправить поворот изображения."""
+        try:
+            # Используем Tesseract для определения ориентации
+            osd = pytesseract.image_to_osd(image, config='--psm 0')
+            
+            # Извлекаем угол поворота
+            angle = int(re.search('Rotate: (\d+)', osd).group(1))
+            
+            if angle != 0:
+                # Поворачиваем изображение
+                height, width = image.shape
+                center = (width // 2, height // 2)
+                rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+                rotated = cv2.warpAffine(image, rotation_matrix, (width, height), 
+                                       flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                return rotated
+            
+            return image
+            
+        except Exception as e:
+            print(f"Ошибка определения поворота: {e}")
+            # Fallback: пробуем повернуть на 90, 180, 270 градусов
+            return self._try_rotation_angles(image)
+    
+    def _try_rotation_angles(self, image: np.ndarray) -> np.ndarray:
+        """Попробовать разные углы поворота и выбрать лучший."""
+        angles = [90, 180, 270]
+        best_image = image
+        best_confidence = 0
+        
+        for angle in angles:
+            height, width = image.shape
+            center = (width // 2, height // 2)
+            rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+            rotated = cv2.warpAffine(image, rotation_matrix, (width, height), 
+                                   flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+            
+            # Оцениваем качество текста после поворота
+            try:
+                config = '--oem 3 --psm 6 -l rus+eng'
+                text = pytesseract.image_to_string(rotated, config=config)
+                confidence = self._estimate_text_quality(text)
+                
+                if confidence > best_confidence:
+                    best_image = rotated
+                    best_confidence = confidence
+            except:
+                continue
+        
+        return best_image
     
     def _extract_text(self, image: np.ndarray) -> str:
         """Извлечь текст из изображения."""
@@ -331,6 +386,40 @@ class ImageProcessor:
             return True
         except Exception as e:
             print(f"Ошибка создания PDF из текста: {e}")
+            return False
+    
+    def create_pdf_from_image(self, image_path: str, output_path: str) -> bool:
+        """Создать PDF из изображения с исправленной ориентацией."""
+        try:
+            # Загружаем изображение
+            image = cv2.imread(image_path)
+            if image is None:
+                return False
+            
+            # Конвертируем в оттенки серого
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            
+            # Определяем и исправляем поворот
+            corrected_image = self._fix_rotation(gray)
+            
+            # Конвертируем обратно в BGR для сохранения
+            corrected_bgr = cv2.cvtColor(corrected_image, cv2.COLOR_GRAY2BGR)
+            
+            # Сохраняем исправленное изображение во временный файл
+            temp_path = f"/tmp/corrected_{os.path.basename(image_path)}"
+            cv2.imwrite(temp_path, corrected_bgr)
+            
+            # Создаем PDF из исправленного изображения
+            success = self.images_to_pdf([temp_path], output_path)
+            
+            # Удаляем временный файл
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            
+            return success
+            
+        except Exception as e:
+            print(f"Ошибка создания PDF из изображения: {e}")
             return False
 
 # Глобальный экземпляр процессора изображений

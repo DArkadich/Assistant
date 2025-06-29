@@ -1570,7 +1570,7 @@ async def handle_document_photo(update: Update, context: ContextTypes.DEFAULT_TY
         
         # Предлагаем действия
         report += "🔧 <b>Действия:</b>\n"
-        report += "• 'Сохранить PDF' - создать PDF из изображения\n"
+        report += "• 'Сохранить PDF' - создать PDF с исправленной ориентацией\n"
         report += "• 'Сохранить текст' - создать PDF из распознанного текста\n"
         report += "• 'Добавить в базу' - добавить документ в систему\n"
         report += "• 'Отмена' - отменить обработку"
@@ -1600,9 +1600,9 @@ async def handle_document_action(update: Update, context: ContextTypes.DEFAULT_T
     
     try:
         if 'сохранить pdf' in user_text:
-            # Создаем PDF из изображения
+            # Создаем PDF из изображения с исправленной ориентацией
             pdf_path = f"/tmp/doc_{doc_data['timestamp']}.pdf"
-            success = image_processor.images_to_pdf([doc_data['image_path']], pdf_path)
+            success = image_processor.create_pdf_from_image(doc_data['image_path'], pdf_path)
             
             if success:
                 # Загружаем в Google Drive
@@ -1610,7 +1610,7 @@ async def handle_document_action(update: Update, context: ContextTypes.DEFAULT_T
                 
                 if drive_file_id:
                     await update.message.reply_text(
-                        f"✅ PDF создан и загружен в Google Drive\n"
+                        f"✅ PDF создан с исправленной ориентацией и загружен в Google Drive\n"
                         f"📁 ID файла: {drive_file_id}"
                     )
                 else:
