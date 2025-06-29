@@ -155,13 +155,39 @@ class RAGSystem:
     
     def search_by_type(self, doc_type: str, query: str = "", n_results: int = 5) -> List[Dict]:
         """Поиск документов определенного типа."""
-        filters = {"type": doc_type}
-        return self.search_documents(query, n_results, filters)
+        # Комбинируем тип документа с запросом для семантического поиска
+        search_query = f"{doc_type} {query}".strip()
+        results = self.search_documents(search_query, n_results * 2)  # Берем больше результатов для фильтрации
+        
+        # Фильтруем по типу документа
+        filtered_results = []
+        for doc in results:
+            metadata = doc.get('metadata', {})
+            if metadata.get('type', '').lower() == doc_type.lower():
+                filtered_results.append(doc)
+                if len(filtered_results) >= n_results:
+                    break
+        
+        return filtered_results
     
     def search_by_counterparty(self, counterparty: str, query: str = "", n_results: int = 5) -> List[Dict]:
         """Поиск документов по контрагенту."""
-        filters = {"counterparty_name": counterparty}
-        return self.search_documents(query, n_results, filters)
+        # Комбинируем название контрагента с запросом для семантического поиска
+        search_query = f"{counterparty} {query}".strip()
+        results = self.search_documents(search_query, n_results * 2)  # Берем больше результатов для фильтрации
+        
+        # Фильтруем по контрагенту (частичное совпадение)
+        filtered_results = []
+        counterparty_lower = counterparty.lower()
+        for doc in results:
+            metadata = doc.get('metadata', {})
+            counterparty_name = metadata.get('counterparty_name', '').lower()
+            if counterparty_lower in counterparty_name or counterparty_name in counterparty_lower:
+                filtered_results.append(doc)
+                if len(filtered_results) >= n_results:
+                    break
+        
+        return filtered_results
     
     def search_by_amount_range(self, min_amount: float = None, max_amount: float = None, query: str = "", n_results: int = 5) -> List[Dict]:
         """Поиск документов по диапазону сумм."""

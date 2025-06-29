@@ -1348,7 +1348,8 @@ async def handle_rag_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for i, doc in enumerate(results, 1):
             metadata = doc.get('metadata', {})
             distance = doc.get('distance', 0)
-            relevance = max(0, 100 - int(distance * 100))  # Конвертируем расстояние в релевантность
+            # Более точный расчет релевантности (distance обычно от 0 до 2)
+            relevance = max(0, min(100, int((1 - distance) * 100)))
             
             text += f"📋 <b>{i}. {metadata.get('type', 'Документ').title()}</b>\n"
             text += f"   Контрагент: {metadata.get('counterparty_name', 'Не указан')}\n"
@@ -1405,7 +1406,8 @@ async def handle_search_by_type(update: Update, context: ContextTypes.DEFAULT_TY
         for i, doc in enumerate(results, 1):
             metadata = doc.get('metadata', {})
             distance = doc.get('distance', 0)
-            relevance = max(0, 100 - int(distance * 100))
+            # Более точный расчет релевантности (distance обычно от 0 до 2)
+            relevance = max(0, min(100, int((1 - distance) * 100)))
             
             text += f"📄 <b>{i}. {metadata.get('type', 'Документ').title()}</b>\n"
             text += f"   Контрагент: {metadata.get('counterparty_name', 'Не указан')}\n"
@@ -1459,7 +1461,8 @@ async def handle_search_by_counterparty(update: Update, context: ContextTypes.DE
         for i, doc in enumerate(results, 1):
             metadata = doc.get('metadata', {})
             distance = doc.get('distance', 0)
-            relevance = max(0, 100 - int(distance * 100))
+            # Более точный расчет релевантности (distance обычно от 0 до 2)
+            relevance = max(0, min(100, int((1 - distance) * 100)))
             
             text += f"📄 <b>{i}. {metadata.get('type', 'Документ').title()}</b>\n"
             text += f"   Сумма: {metadata.get('amount', 'Не указана')} руб.\n"
