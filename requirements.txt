@@ -23,3 +23,6 @@ pytesseract>=0.3.10
 pdf2image>=1.16.0
 img2pdf>=0.4.0
 reportlab>=4.0.0
+# Speech recognition
+SpeechRecognition==3.10.0
+pydub==0.25.1

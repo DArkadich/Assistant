@@ -44,7 +44,10 @@ class Goal:
             self.progress_updates = []
     
     def to_dict(self) -> Dict:
-        return asdict(self)
+        data = asdict(self)
+        data['goal_type'] = self.goal_type.value
+        data['period'] = self.period.value
+        return data
     
     @classmethod
     def from_dict(cls, data: Dict) -> 'Goal':

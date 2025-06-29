@@ -18,6 +18,8 @@ from core.drive_manager import drive_manager
 from core.rag_system import rag_system
 from core.image_processor import image_processor
 from core.goals import goals_manager, GoalType, GoalPeriod
+from core.memory import chat_memory
+from core.speech_recognition import speech_recognizer
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -418,6 +420,10 @@ def check_calendar_changes_and_notify(app, chat_id):
 # --- Расширение handle_message ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
+    user_id = update.message.from_user.id
+    username = update.message.from_user.username or update.message.from_user.full_name
+    # Сохраняем сообщение пользователя в память
+    chat_memory.add_message(user_id=user_id, username=username, text=user_text, role="user")
     print(f"[DEBUG] Получено сообщение: {user_text}")
     save_last_chat_id(update.effective_chat.id)
 
@@ -1314,6 +1320,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = await ask_openai(user_text)
     await update.message.reply_text(reply)
 
+    # Контекст и память: что решили с ...
+    if re.search(r"что решили с (.+)", user_text, re.I):
+        await handle_what_decided(update, context)
+        return
+    # Контекст и память: с кем обсуждали ...
+    if re.search(r"с кем обсуждали (.+)", user_text, re.I):
+        await handle_who_discussed(update, context)
+        return
+
 def extract_date_phrase_for_finance(text):
     import re
     patterns = [
@@ -1337,6 +1352,9 @@ def run_bot():
     
     # Обработчик для фотографий
     app.add_handler(MessageHandler(filters.PHOTO, handle_document_photo))
+    
+    # Обработчик для голосовых сообщений
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
     
     app.run_polling()
 
@@ -1959,3 +1977,124 @@ async def handle_list_goals(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка получения списка целей: {e}")
+
+# --- Контекст и память ---
+async def handle_what_decided(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    match = re.search(r"что решили с (.+)", user_text, re.I)
+    if not match:
+        await update.message.reply_text("Уточните запрос: 'Что решили с [тема/объект]'")
+        return
+    topic = match.group(1).strip()
+    # Поиск по истории чата
+    messages = chat_memory.search(topic, limit=10)
+    # Поиск по задачам
+    from core.planner import get_tasks
+    tasks = [t for t in get_tasks() if topic.lower() in t['description'].lower()]
+    # Поиск по RAG (документы, протоколы)
+    from core.rag_system import rag_system
+    rag_results = rag_system.search_documents(topic, n_results=3)
+    # Формируем ответ
+    reply = f"🧠 <b>Контекст по запросу: {topic}</b>\n\n"
+    if messages:
+        reply += "💬 <b>Фрагменты переписки:</b>\n"
+        for m in messages:
+            reply += f"— {m['username']}: {m['text']}\n"
+        reply += "\n"
+    if tasks:
+        reply += "📋 <b>Задачи:</b>\n"
+        for t in tasks:
+            reply += f"— {t['description']} ({'✅' if t.get('completed') else '⏳'})\n"
+        reply += "\n"
+    if rag_results:
+        reply += "📄 <b>Документы/протоколы:</b>\n"
+        for doc in rag_results:
+            meta = doc.get('metadata', {})
+            reply += f"— {meta.get('type', 'Документ')}: {meta.get('title', '')} (ID: {doc['id']})\n"
+        reply += "\n"
+    if not (messages or tasks or rag_results):
+        reply += "❓ Нет найденных решений или обсуждений по теме."
+    await update.message.reply_text(reply, parse_mode='HTML')
+
+async def handle_who_discussed(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    match = re.search(r"с кем обсуждали (.+)", user_text, re.I)
+    if not match:
+        await update.message.reply_text("Уточните запрос: 'С кем обсуждали [тема/объект]'")
+        return
+    topic = match.group(1).strip()
+    # Поиск по истории чата
+    discussions = chat_memory.get_discussions_with(topic, limit=10)
+    reply = f"🧠 <b>Обсуждения по теме: {topic}</b>\n\n"
+    if discussions:
+        for d in discussions:
+            reply += f"👤 <b>{d['username']}</b> участвовал(а):\n"
+            for m in d['messages'][-3:]:
+                reply += f"— {m['text']}\n"
+            reply += "\n"
+    else:
+        reply += "❓ Нет найденных обсуждений по теме."
+    await update.message.reply_text(reply, parse_mode='HTML')
+
+# --- Голосовое распознавание ---
+async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка голосовых сообщений."""
+    try:
+        # Отправляем сообщение о начале обработки
+        processing_msg = await update.message.reply_text(
+            "🎤 Обрабатываю голосовое сообщение...\n"
+            "🔍 Выполняю распознавание речи..."
+        )
+        
+        # Получаем голосовое сообщение
+        voice = update.message.voice
+        file = await context.bot.get_file(voice.file_id)
+        
+        # Скачиваем аудиофайл
+        temp_path = f"/tmp/voice_{voice.file_id}.ogg"
+        await file.download_to_drive(temp_path)
+        
+        # Распознаем речь
+        recognized_text = speech_recognizer.recognize_speech(temp_path)
+        
+        # Удаляем временный файл
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        
+        if not recognized_text:
+            await processing_msg.edit_text(
+                "❌ Не удалось распознать речь.\n"
+                "Попробуйте говорить четче или отправьте текстовое сообщение."
+            )
+            return
+        
+        # Сохраняем распознанный текст в память
+        user_id = update.message.from_user.id
+        username = update.message.from_user.username or update.message.from_user.full_name
+        chat_memory.add_message(user_id=user_id, username=username, text=recognized_text, role="user")
+        
+        # Показываем распознанный текст
+        await processing_msg.edit_text(
+            f"🎤 <b>Распознанный текст:</b>\n{recognized_text}\n\n"
+            f"🔧 Обрабатываю команду...",
+            parse_mode='HTML'
+        )
+        
+        # Создаем фейковое сообщение для обработки
+        class FakeMessage:
+            def __init__(self, original_message, text):
+                self.text = text
+                self.from_user = original_message.from_user
+                self.effective_chat = original_message.effective_chat
+                self.reply_text = original_message.reply_text
+        
+        class FakeUpdate:
+            def __init__(self, original_update, text):
+                self.message = FakeMessage(original_update.message, text)
+        
+        # Обрабатываем распознанный текст как обычную команду
+        fake_update = FakeUpdate(update, recognized_text)
+        await handle_message(fake_update, context)
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка обработки голосового сообщения: {e}")
