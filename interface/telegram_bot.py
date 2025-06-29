@@ -20,6 +20,9 @@ from core.image_processor import image_processor
 from core.goals import goals_manager, GoalType, GoalPeriod
 from core.memory import chat_memory
 from core.speech_recognition import speech_recognizer
+from core.email_analyzer import email_analyzer
+from email.message import EmailMessage
+from email.policy import EmailPriority, EmailStatus
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -1316,10 +1319,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_document_action(update, context)
         return
     
-    # Если не задача и не финансы — fallback на GPT-ответ
-    reply = await ask_openai(user_text)
-    await update.message.reply_text(reply)
-
+    # Email команды
+    if re.search(r"(сводка входящих|входящие|email сводка|почта сводка)", user_text, re.I):
+        await handle_email_summary(update, context)
+        return
+    
+    if re.search(r"(срочные сообщения|ожидают ответа|важные сообщения|email линзы)", user_text, re.I):
+        await handle_email_lens(update, context)
+        return
+    
+    if re.search(r"(шаблон ответа|ответить на|reply template)", user_text, re.I):
+        await handle_reply_template(update, context)
+        return
+    
+    if re.search(r"(настройка email|email настройка|конфиг email)", user_text, re.I):
+        await handle_email_config(update, context)
+        return
+    
     # Контекст и память: что решили с ...
     if re.search(r"что решили с (.+)", user_text, re.I):
         await handle_what_decided(update, context)
@@ -1328,6 +1344,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if re.search(r"с кем обсуждали (.+)", user_text, re.I):
         await handle_who_discussed(update, context)
         return
+
+    # Если не задача и не финансы — fallback на GPT-ответ
+    reply = await ask_openai(user_text)
+    await update.message.reply_text(reply)
 
 def extract_date_phrase_for_finance(text):
     import re
@@ -2088,3 +2108,207 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка обработки голосового сообщения: {e}")
+
+# --- Email функции ---
+async def handle_email_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать сводку входящих сообщений."""
+    user_text = update.message.text.lower()
+    
+    # Определяем провайдера
+    provider = "gmail"
+    if "яндекс" in user_text or "yandex" in user_text:
+        provider = "yandex"
+    
+    await update.message.reply_text(f"📧 Получаю сводку входящих из {provider}...")
+    
+    try:
+        summary = email_analyzer.get_inbox_summary(provider)
+        
+        if "error" in summary:
+            await update.message.reply_text(f"❌ {summary['error']}")
+            return
+        
+        text = f"📧 <b>Сводка входящих ({provider}):</b>\n\n"
+        text += f"📊 Всего сообщений: {summary['total_messages']}\n"
+        text += f"🚨 Срочных: {summary['urgent_count']}\n"
+        text += f"⭐ Важных: {summary['high_priority_count']}\n"
+        text += f"💬 Требуют ответа: {summary['need_reply_count']}\n\n"
+        
+        if summary['urgent_messages']:
+            text += "🚨 <b>Срочные сообщения:</b>\n"
+            for msg in summary['urgent_messages']:
+                text += f"• {msg['subject']} (от {msg['sender']})\n"
+            text += "\n"
+        
+        if summary['need_reply_messages']:
+            text += "💬 <b>Требуют ответа:</b>\n"
+            for msg in summary['need_reply_messages']:
+                text += f"• {msg['subject']} (от {msg['sender']})\n"
+            text += "\n"
+        
+        text += f"📝 <b>Анализ:</b>\n{summary['summary']}"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения сводки: {e}")
+
+async def handle_email_lens(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать сообщения по линзам."""
+    user_text = update.message.text.lower()
+    
+    # Определяем линзу
+    lens = None
+    if "срочные" in user_text or "urgent" in user_text:
+        lens = "urgent"
+    elif "ответ" in user_text or "reply" in user_text:
+        lens = "need_reply"
+    elif "важное" in user_text or "important" in user_text:
+        lens = "important"
+    else:
+        await update.message.reply_text(
+            "🔍 <b>Просмотр по линзам</b>\n\n"
+            "Используйте:\n"
+            "• 'Срочные сообщения' - срочные и важные\n"
+            "• 'Ожидают ответа' - требующие ответа\n"
+            "• 'Важные сообщения' - все важные\n\n"
+            "Примеры:\n"
+            "• Покажи срочные сообщения\n"
+            "• Что ожидает ответа\n"
+            "• Важные входящие",
+            parse_mode='HTML'
+        )
+        return
+    
+    # Определяем провайдера
+    provider = "gmail"
+    if "яндекс" in user_text or "yandex" in user_text:
+        provider = "yandex"
+    
+    await update.message.reply_text(f"🔍 Получаю сообщения по линзе '{lens}' из {provider}...")
+    
+    try:
+        messages = email_analyzer.get_messages_by_lens(lens, provider)
+        
+        if not messages:
+            lens_names = {
+                "urgent": "срочных",
+                "need_reply": "ожидающих ответа",
+                "important": "важных"
+            }
+            await update.message.reply_text(f"📧 Сообщений {lens_names.get(lens, lens)} не найдено.")
+            return
+        
+        # Ограничиваем количество для отображения
+        display_messages = messages[:10]
+        
+        lens_names = {
+            "urgent": "Срочные сообщения",
+            "need_reply": "Ожидают ответа",
+            "important": "Важные сообщения"
+        }
+        
+        text = f"📧 <b>{lens_names.get(lens, lens)} ({provider}):</b>\n\n"
+        
+        for i, msg in enumerate(display_messages, 1):
+            text += f"📨 <b>{i}. {msg.subject}</b>\n"
+            text += f"   От: {msg.sender}\n"
+            text += f"   Дата: {msg.date.strftime('%d.%m %H:%M')}\n"
+            text += f"   Приоритет: {msg.priority.value}\n"
+            if msg.is_reply_needed:
+                text += f"   ⚠️ Требует ответа\n"
+            text += "\n"
+        
+        if len(messages) > 10:
+            text += f"... и еще {len(messages) - 10} сообщений"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения сообщений: {e}")
+
+async def handle_reply_template(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Генерация шаблона ответа."""
+    user_text = update.message.text
+    
+    # Извлекаем тему или ID сообщения
+    template_match = re.search(r"(шаблон ответа|ответить на|reply template)\s+(.+)", user_text, re.I)
+    if not template_match:
+        await update.message.reply_text(
+            "📝 <b>Генерация шаблона ответа</b>\n\n"
+            "Используйте:\n"
+            "• 'Шаблон ответа [тема]' - создать шаблон\n"
+            "• 'Ответить на [тема]' - предложить ответ\n"
+            "• 'Reply template [subject]' - на английском\n\n"
+            "Примеры:\n"
+            "• Шаблон ответа на предложение о сотрудничестве\n"
+            "• Ответить на запрос цены\n"
+            "• Reply template meeting request",
+            parse_mode='HTML'
+        )
+        return
+    
+    query = template_match.group(2).strip()
+    
+    await update.message.reply_text(f"📝 Генерирую шаблон ответа для '{query}'...")
+    
+    try:
+        # Создаем временное сообщение для генерации шаблона
+        temp_message = EmailMessage(
+            id="temp",
+            subject=query,
+            sender="Unknown",
+            sender_email="unknown@example.com",
+            date=datetime.now(),
+            content=f"Запрос на генерацию шаблона ответа для: {query}",
+            priority=EmailPriority.MEDIUM,
+            status=EmailStatus.NEW,
+            labels=[],
+            thread_id="temp",
+            is_reply_needed=True
+        )
+        
+        template = email_analyzer.generate_reply_template(temp_message)
+        
+        text = f"📝 <b>Шаблон ответа для '{query}':</b>\n\n"
+        text += template
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка генерации шаблона: {e}")
+
+async def handle_email_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Настройка email аккаунтов."""
+    user_text = update.message.text.lower()
+    
+    if "настройка" in user_text or "config" in user_text:
+        await update.message.reply_text(
+            "⚙️ <b>Настройка Email аккаунтов</b>\n\n"
+            "Для настройки отредактируйте файл email_config.json:\n\n"
+            "1. <b>Gmail:</b>\n"
+            "   - Включите двухфакторную аутентификацию\n"
+            "   - Создайте пароль приложения\n"
+            "   - Укажите email и пароль приложения\n\n"
+            "2. <b>Яндекс.Почта:</b>\n"
+            "   - Включите IMAP в настройках\n"
+            "   - Создайте пароль приложения\n"
+            "   - Укажите email и пароль приложения\n\n"
+            "После настройки используйте:\n"
+            "• 'Сводка входящих' - общая сводка\n"
+            "• 'Срочные сообщения' - по линзам\n"
+            "• 'Шаблон ответа' - генерация ответов",
+            parse_mode='HTML'
+        )
+    else:
+        await update.message.reply_text(
+            "📧 <b>Email команды</b>\n\n"
+            "• 'Сводка входящих' - общая сводка\n"
+            "• 'Срочные сообщения' - срочные и важные\n"
+            "• 'Ожидают ответа' - требующие ответа\n"
+            "• 'Важные сообщения' - все важные\n"
+            "• 'Шаблон ответа [тема]' - генерация ответа\n"
+            "• 'Настройка email' - инструкции по настройке\n\n"
+            "Поддерживаются Gmail и Яндекс.Почта",
+            parse_mode='HTML'
+        )
