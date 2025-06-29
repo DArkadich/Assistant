@@ -14,7 +14,8 @@ apscheduler==3.10.4
 pytz==2023.3
 dateparser==1.1.8
 
-# RAG and ML (lighter alternatives)
+# RAG and ML (fixed versions for compatibility)
+huggingface-hub==0.16.4
 sentence-transformers==2.2.2
 chromadb==0.4.18
 numpy==1.24.3
