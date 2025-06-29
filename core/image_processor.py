@@ -55,26 +55,11 @@ class ImageProcessor:
         new_height, new_width = int(height * scale_factor), int(width * scale_factor)
         resized = cv2.resize(corrected_image, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
         
-        # Увеличиваем контраст с помощью CLAHE
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        # Простая предобработка - только контраст
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
         enhanced = clahe.apply(resized)
         
-        # Убираем шум с помощью медианного фильтра
-        denoised = cv2.medianBlur(enhanced, 3)
-        
-        # Дополнительная фильтрация шума
-        denoised = cv2.fastNlMeansDenoising(denoised, None, 10, 7, 21)
-        
-        # Адаптивная бинаризация для лучшего разделения текста и фона
-        binary = cv2.adaptiveThreshold(
-            denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
-        )
-        
-        # Морфологические операции для очистки
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-        
-        return cleaned
+        return enhanced
     
     def _fix_rotation(self, image: np.ndarray) -> np.ndarray:
         """Определить и исправить поворот изображения."""
@@ -129,37 +114,55 @@ class ImageProcessor:
         return best_image
     
     def _extract_text(self, image: np.ndarray) -> str:
-        """Извлечь текст из изображения."""
-        try:
-            # Улучшенные настройки OCR для русского языка
-            config = '--oem 3 --psm 6 -l rus+eng --dpi 300 --tessdata-dir /usr/share/tessdata'
+        """Извлечь текст из изображения с множественными стратегиями."""
+        strategies = [
+            # Стратегия 1: Простое изображение
+            {'name': 'Простое изображение', 'config': '--oem 3 --psm 6 -l rus+eng', 'image': image},
             
-            # Пробуем разные PSM режимы для лучшего результата
-            psm_modes = [6, 8, 13]  # 6=блок текста, 8=одна строка, 13=сырой текст
-            best_text = ""
-            best_confidence = 0
+            # Стратегия 2: Бинаризованное изображение
+            {'name': 'Бинаризованное', 'config': '--oem 3 --psm 6 -l rus+eng', 'image': self._binarize_image(image)},
             
-            for psm in psm_modes:
-                config = f'--oem 3 --psm {psm} -l rus+eng --dpi 300'
-                text = pytesseract.image_to_string(image, config=config)
-                
-                # Простая оценка качества текста
+            # Стратегия 3: Разные PSM режимы
+            {'name': 'PSM 8', 'config': '--oem 3 --psm 8 -l rus+eng', 'image': image},
+            {'name': 'PSM 13', 'config': '--oem 3 --psm 13 -l rus+eng', 'image': image},
+            
+            # Стратегия 4: Только английский (иногда лучше для цифр)
+            {'name': 'Только английский', 'config': '--oem 3 --psm 6 -l eng', 'image': image},
+            
+            # Стратегия 5: Только русский
+            {'name': 'Только русский', 'config': '--oem 3 --psm 6 -l rus', 'image': image},
+        ]
+        
+        best_text = ""
+        best_confidence = 0
+        best_strategy = "Не найдено"
+        
+        for strategy in strategies:
+            try:
+                text = pytesseract.image_to_string(strategy['image'], config=strategy['config'])
                 confidence = self._estimate_text_quality(text)
+                
+                print(f"Стратегия '{strategy['name']}': уверенность {confidence:.2f}, текст: {text[:50]}...")
+                
                 if confidence > best_confidence:
                     best_text = text
                     best_confidence = confidence
-            
-            return best_text.strip()
-            
-        except Exception as e:
-            print(f"Ошибка OCR: {e}")
-            # Fallback на базовые настройки
-            try:
-                config = '--oem 3 --psm 6 -l rus+eng'
-                text = pytesseract.image_to_string(image, config=config)
-                return text.strip()
-            except:
-                return ""
+                    best_strategy = strategy['name']
+                    
+            except Exception as e:
+                print(f"Ошибка стратегии '{strategy['name']}': {e}")
+                continue
+        
+        print(f"Лучшая стратегия: '{best_strategy}' с уверенностью {best_confidence:.2f}")
+        return best_text.strip()
+    
+    def _binarize_image(self, image: np.ndarray) -> np.ndarray:
+        """Создать бинаризованную версию изображения."""
+        # Адаптивная бинаризация
+        binary = cv2.adaptiveThreshold(
+            image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        )
+        return binary
     
     def _estimate_text_quality(self, text: str) -> float:
         """Оценить качество распознанного текста."""

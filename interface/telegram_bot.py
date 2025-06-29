@@ -17,6 +17,7 @@ from core.planner import *
 from core.drive_manager import drive_manager
 from core.rag_system import rag_system
 from core.image_processor import image_processor
+from core.goals import goals_manager, GoalType, GoalPeriod
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -1287,6 +1288,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_rag_stats(update, context)
         return
     
+    # Команды для целей и KPI
+    if re.search(r"(создать цель|новая цель|добавить цель)", user_text, re.I):
+        await handle_create_goal(update, context)
+        return
+    
+    if re.search(r"(прогресс по цели|статус цели|как дела с целью)", user_text, re.I):
+        await handle_goal_progress(update, context)
+        return
+    
+    if re.search(r"(обновить прогресс|обновить цель|прогресс)", user_text, re.I):
+        await handle_update_goal_progress(update, context)
+        return
+    
+    if re.search(r"(все цели|список целей|мои цели)", user_text, re.I):
+        await handle_list_goals(update, context)
+        return
+    
     # Обработка действий с распознанными документами
     if context.user_data.get('processed_document'):
         await handle_document_action(update, context)
@@ -1606,12 +1624,13 @@ async def handle_document_action(update: Update, context: ContextTypes.DEFAULT_T
             
             if success:
                 # Загружаем в Google Drive
-                drive_file_id = drive_manager.upload_file(pdf_path, f"doc_{doc_data['timestamp']}")
+                drive_result = drive_manager.upload_file(pdf_path, f"doc_{doc_data['timestamp']}.pdf")
                 
-                if drive_file_id:
+                if drive_result and 'id' in drive_result:
                     await update.message.reply_text(
                         f"✅ PDF создан с исправленной ориентацией и загружен в Google Drive\n"
-                        f"📁 ID файла: {drive_file_id}"
+                        f"📁 ID файла: {drive_result['id']}\n"
+                        f"📄 Имя: {drive_result.get('name', 'Не указано')}"
                     )
                 else:
                     await update.message.reply_text("❌ Ошибка загрузки в Google Drive")
@@ -1626,12 +1645,13 @@ async def handle_document_action(update: Update, context: ContextTypes.DEFAULT_T
             
             if success:
                 # Загружаем в Google Drive
-                drive_file_id = drive_manager.upload_file(pdf_path, f"doc_text_{doc_data['timestamp']}")
+                drive_result = drive_manager.upload_file(pdf_path, f"doc_text_{doc_data['timestamp']}.pdf")
                 
-                if drive_file_id:
+                if drive_result and 'id' in drive_result:
                     await update.message.reply_text(
                         f"✅ PDF из текста создан и загружен в Google Drive\n"
-                        f"📁 ID файла: {drive_file_id}"
+                        f"📁 ID файла: {drive_result['id']}\n"
+                        f"📄 Имя: {drive_result.get('name', 'Не указано')}"
                     )
                 else:
                     await update.message.reply_text("❌ Ошибка загрузки в Google Drive")
@@ -1685,3 +1705,257 @@ async def handle_document_action(update: Update, context: ContextTypes.DEFAULT_T
     
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка выполнения действия: {e}")
+
+# --- Функции для целей и KPI ---
+async def handle_create_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка создания новой цели."""
+    user_text = update.message.text
+    
+    # Парсим команду создания цели
+    # Пример: "Создать цель выручка 3 млн до сентября"
+    goal_match = re.search(r"(?:создать цель|новая цель|добавить цель)\s+(.+?)\s+(\d+(?:\.\d+)?)\s*(млн|тыс|руб|%|шт|клиентов?)?(?:\s+до\s+(.+))?", user_text, re.I)
+    
+    if not goal_match:
+        await update.message.reply_text(
+            "🎯 <b>Создание новой цели</b>\n\n"
+            "Используйте формат:\n"
+            "• 'Создать цель [название] [значение] [единица] до [дата]'\n\n"
+            "Примеры:\n"
+            "• Создать цель выручка 3 млн до сентября\n"
+            "• Новая цель подписки 100 клиентов до декабря\n"
+            "• Добавить цель производство 1000 шт до конца месяца",
+            parse_mode='HTML'
+        )
+        return
+    
+    goal_name = goal_match.group(1).strip()
+    target_value = float(goal_match.group(2))
+    unit = goal_match.group(3) or ""
+    end_date_str = goal_match.group(4)
+    
+    # Определяем тип цели
+    goal_type = GoalType.CUSTOM
+    if any(word in goal_name.lower() for word in ['выручка', 'доход', 'прибыль', 'млн', 'тыс']):
+        goal_type = GoalType.REVENUE
+    elif any(word in goal_name.lower() for word in ['подписк', 'клиент', 'пользователь']):
+        goal_type = GoalType.SUBSCRIPTIONS
+    elif any(word in goal_name.lower() for word in ['производство', 'продукт', 'шт', 'единиц']):
+        goal_type = GoalType.PRODUCTION
+    
+    # Парсим дату
+    end_date = None
+    if end_date_str:
+        end_date = parse_natural_date(end_date_str)
+        if end_date:
+            end_date = end_date.strftime('%Y-%m-%d')
+    
+    try:
+        # Создаем цель
+        goal_id = goals_manager.create_goal(
+            name=goal_name,
+            description=f"Цель: {goal_name} {target_value}{unit}",
+            goal_type=goal_type,
+            target_value=target_value,
+            end_date=end_date
+        )
+        
+        await update.message.reply_text(
+            f"✅ <b>Цель создана!</b>\n\n"
+            f"🎯 Название: {goal_name}\n"
+            f"📊 Целевое значение: {target_value}{unit}\n"
+            f"📅 Срок: {end_date or 'Не указан'}\n"
+            f"🆔 ID: {goal_id}\n\n"
+            f"Используйте:\n"
+            f"• 'Прогресс по цели {goal_name}' - проверить статус\n"
+            f"• 'Обновить прогресс {goal_name} [значение]' - обновить прогресс",
+            parse_mode='HTML'
+        )
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка создания цели: {e}")
+
+async def handle_goal_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка запроса прогресса по цели."""
+    user_text = update.message.text
+    
+    # Парсим запрос прогресса
+    # Пример: "Какой прогресс по цели 3 млн выручки до сентября?"
+    progress_match = re.search(r"(?:прогресс по цели|статус цели|как дела с целью)\s+(.+?)(?:\s+до\s+(.+))?", user_text, re.I)
+    
+    if not progress_match:
+        await update.message.reply_text(
+            "📊 <b>Проверка прогресса по цели</b>\n\n"
+            "Используйте:\n"
+            "• 'Прогресс по цели [название]' - проверить статус\n"
+            "• 'Статус цели [название]' - получить детали\n\n"
+            "Примеры:\n"
+            "• Прогресс по цели выручка 3 млн\n"
+            "• Статус цели подписки 100 клиентов",
+            parse_mode='HTML'
+        )
+        return
+    
+    goal_query = progress_match.group(1).strip()
+    
+    try:
+        # Ищем цель
+        goals = goals_manager.search_goals(goal_query)
+        
+        if not goals:
+            await update.message.reply_text(f"🔍 Цель '{goal_query}' не найдена.")
+            return
+        
+        # Берем первую найденную цель
+        goal = goals[0]
+        progress_data = goals_manager.get_goal_progress(goal.id)
+        
+        if not progress_data:
+            await update.message.reply_text(f"❌ Ошибка получения прогресса для цели '{goal.name}'")
+            return
+        
+        # Формируем отчет
+        report = f"📊 <b>Прогресс по цели: {goal.name}</b>\n\n"
+        report += f"🎯 Целевое значение: {goal.target_value}\n"
+        report += f"📈 Текущее значение: {goal.current_value}\n"
+        report += f"📊 Прогресс: {progress_data['progress_percentage']}%\n"
+        report += f"📉 Осталось: {progress_data['remaining']}\n\n"
+        
+        # Тренд
+        trend = progress_data['trend']
+        trend_emoji = "📈" if trend['direction'] == 'increasing' else "📉" if trend['direction'] == 'decreasing' else "➡️"
+        report += f"{trend_emoji} <b>Тренд:</b> {trend['direction']} ({trend['rate']}/день)\n"
+        
+        # Прогноз
+        forecast = progress_data['forecast']
+        if forecast['achievable']:
+            report += f"✅ <b>Прогноз:</b> Цель достижима\n"
+            if forecast['estimated_completion']:
+                completion_date = datetime.fromisoformat(forecast['estimated_completion']).strftime('%d.%m.%Y')
+                report += f"📅 Ожидаемое завершение: {completion_date}\n"
+        else:
+            report += f"⚠️ <b>Прогноз:</b> Цель под угрозой\n"
+            report += f"📊 Требуемая скорость: {forecast['required_rate']}/день\n"
+        
+        # Статус
+        status_emoji = "🟢" if progress_data['is_on_track'] else "🔴"
+        report += f"\n{status_emoji} <b>Статус:</b> {'По плану' if progress_data['is_on_track'] else 'Отставание'}"
+        
+        await update.message.reply_text(report, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения прогресса: {e}")
+
+async def handle_update_goal_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка обновления прогресса по цели."""
+    user_text = update.message.text
+    
+    # Парсим обновление прогресса
+    # Пример: "Обновить прогресс выручка 2.5 млн"
+    update_match = re.search(r"(?:обновить прогресс|обновить цель|прогресс)\s+(.+?)\s+(\d+(?:\.\d+)?)\s*(млн|тыс|руб|%|шт|клиентов?)?", user_text, re.I)
+    
+    if not update_match:
+        await update.message.reply_text(
+            "📈 <b>Обновление прогресса по цели</b>\n\n"
+            "Используйте формат:\n"
+            "• 'Обновить прогресс [название] [новое значение] [единица]'\n\n"
+            "Примеры:\n"
+            "• Обновить прогресс выручка 2.5 млн\n"
+            "• Обновить цель подписки 75 клиентов\n"
+            "• Прогресс производство 800 шт",
+            parse_mode='HTML'
+        )
+        return
+    
+    goal_query = update_match.group(1).strip()
+    new_value = float(update_match.group(2))
+    unit = update_match.group(3) or ""
+    
+    try:
+        # Ищем цель
+        goals = goals_manager.search_goals(goal_query)
+        
+        if not goals:
+            await update.message.reply_text(f"🔍 Цель '{goal_query}' не найдена.")
+            return
+        
+        # Берем первую найденную цель
+        goal = goals[0]
+        old_value = goal.current_value
+        
+        # Обновляем прогресс
+        success = goals_manager.update_goal_progress(goal.id, new_value, f"Обновлено через Telegram")
+        
+        if success:
+            change = new_value - old_value
+            change_emoji = "📈" if change > 0 else "📉" if change < 0 else "➡️"
+            
+            await update.message.reply_text(
+                f"✅ <b>Прогресс обновлен!</b>\n\n"
+                f"🎯 Цель: {goal.name}\n"
+                f"📊 Было: {old_value}\n"
+                f"📈 Стало: {new_value}\n"
+                f"{change_emoji} Изменение: {change:+g}\n\n"
+                f"Используйте 'Прогресс по цели {goal.name}' для проверки статуса",
+                parse_mode='HTML'
+            )
+        else:
+            await update.message.reply_text("❌ Ошибка обновления прогресса")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка обновления прогресса: {e}")
+
+async def handle_list_goals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка запроса списка всех целей."""
+    try:
+        goals = goals_manager.get_active_goals()
+        
+        if not goals:
+            await update.message.reply_text(
+                "📋 <b>У вас пока нет активных целей</b>\n\n"
+                "Создайте первую цель:\n"
+                "• 'Создать цель выручка 3 млн до сентября'\n"
+                "• 'Новая цель подписки 100 клиентов до декабря'",
+                parse_mode='HTML'
+            )
+            return
+        
+        # Группируем цели по типу
+        goals_by_type = {}
+        for goal in goals:
+            goal_type = goal.goal_type.value
+            if goal_type not in goals_by_type:
+                goals_by_type[goal_type] = []
+            goals_by_type[goal_type].append(goal)
+        
+        # Формируем отчет
+        report = f"📋 <b>Активные цели ({len(goals)}):</b>\n\n"
+        
+        for goal_type, type_goals in goals_by_type.items():
+            type_emoji = {
+                'revenue': '💰',
+                'subscriptions': '👥',
+                'production': '🏭',
+                'custom': '🎯'
+            }.get(goal_type, '📊')
+            
+            report += f"{type_emoji} <b>{goal_type.title()}:</b>\n"
+            
+            for goal in type_goals:
+                progress_data = goals_manager.get_goal_progress(goal.id)
+                progress_percent = progress_data['progress_percentage'] if progress_data else 0
+                
+                status_emoji = "🟢" if progress_data and progress_data['is_on_track'] else "🔴"
+                
+                report += f"  {status_emoji} {goal.name}: {goal.current_value}/{goal.target_value} ({progress_percent}%)\n"
+            
+            report += "\n"
+        
+        report += "💡 <b>Команды:</b>\n"
+        report += "• 'Прогресс по цели [название]' - проверить статус\n"
+        report += "• 'Обновить прогресс [название] [значение]' - обновить\n"
+        report += "• 'Создать цель [название] [значение] до [дата]' - новая цель"
+        
+        await update.message.reply_text(report, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения списка целей: {e}")
