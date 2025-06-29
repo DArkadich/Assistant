@@ -155,26 +155,45 @@ class RAGSystem:
     
     def search_by_type(self, doc_type: str, query: str = "", n_results: int = 5) -> List[Dict]:
         """Поиск документов определенного типа."""
-        # Комбинируем тип документа с запросом для семантического поиска
-        search_query = f"{doc_type} {query}".strip()
-        results = self.search_documents(search_query, n_results * 2)  # Берем больше результатов для фильтрации
-        
-        # Фильтруем по типу документа
-        filtered_results = []
-        for doc in results:
-            metadata = doc.get('metadata', {})
-            if metadata.get('type', '').lower() == doc_type.lower():
-                filtered_results.append(doc)
-                if len(filtered_results) >= n_results:
-                    break
+        if query:
+            # Если есть дополнительный запрос, используем семантический поиск
+            search_query = f"{doc_type} {query}".strip()
+            results = self.search_documents(search_query, n_results * 2)
+            
+            # Фильтруем по типу документа
+            filtered_results = []
+            for doc in results:
+                metadata = doc.get('metadata', {})
+                if metadata.get('type', '').lower() == doc_type.lower():
+                    filtered_results.append(doc)
+                    if len(filtered_results) >= n_results:
+                        break
+        else:
+            # Если нет дополнительного запроса, ищем все документы типа
+            search_query = doc_type
+            results = self.search_documents(search_query, n_results * 2)
+            
+            # Фильтруем по типу документа
+            filtered_results = []
+            for doc in results:
+                metadata = doc.get('metadata', {})
+                if metadata.get('type', '').lower() == doc_type.lower():
+                    filtered_results.append(doc)
+                    if len(filtered_results) >= n_results:
+                        break
         
         return filtered_results
     
     def search_by_counterparty(self, counterparty: str, query: str = "", n_results: int = 5) -> List[Dict]:
         """Поиск документов по контрагенту."""
-        # Комбинируем название контрагента с запросом для семантического поиска
-        search_query = f"{counterparty} {query}".strip()
-        results = self.search_documents(search_query, n_results * 2)  # Берем больше результатов для фильтрации
+        if query:
+            # Если есть дополнительный запрос, используем семантический поиск
+            search_query = f"{counterparty} {query}".strip()
+            results = self.search_documents(search_query, n_results * 2)
+        else:
+            # Если нет дополнительного запроса, ищем по названию контрагента
+            search_query = counterparty
+            results = self.search_documents(search_query, n_results * 2)
         
         # Фильтруем по контрагенту (частичное совпадение)
         filtered_results = []
