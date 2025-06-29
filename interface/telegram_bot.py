@@ -1361,13 +1361,6 @@ def run_bot():
 # --- RAG функции ---
 async def handle_rag_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка семантического поиска в документах."""
-    if not rag_system.is_enabled:
-        await update.message.reply_text(
-            "🔍 Семантический поиск временно отключен.\n"
-            "Система будет восстановлена после оптимизации зависимостей."
-        )
-        return
-    
     user_text = update.message.text
     
     # Извлекаем запрос для поиска
@@ -1391,7 +1384,7 @@ async def handle_rag_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         # Выполняем поиск
-        results = rag_system.search(query, limit=5)
+        results = rag_system.search_documents(query, n_results=5)
         
         if not results:
             await update.message.reply_text(f"🔍 По запросу '{query}' документы не найдены.")
@@ -1420,13 +1413,6 @@ async def handle_rag_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_search_by_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Поиск документов по типу."""
-    if not rag_system.is_enabled:
-        await update.message.reply_text(
-            "🔍 Поиск по типу документов временно отключен.\n"
-            "Система будет восстановлена после оптимизации зависимостей."
-        )
-        return
-    
     user_text = update.message.text
     
     # Извлекаем тип документа
@@ -1485,13 +1471,6 @@ async def handle_search_by_type(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def handle_search_by_counterparty(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Поиск документов по контрагенту."""
-    if not rag_system.is_enabled:
-        await update.message.reply_text(
-            "🔍 Поиск по контрагенту временно отключен.\n"
-            "Система будет восстановлена после оптимизации зависимостей."
-        )
-        return
-    
     user_text = update.message.text
     
     # Извлекаем название контрагента и запрос
@@ -1547,34 +1526,17 @@ async def handle_search_by_counterparty(update: Update, context: ContextTypes.DE
 
 async def handle_rag_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать статистику RAG системы."""
-    if not rag_system.is_enabled:
-        await update.message.reply_text(
-            "📊 RAG система временно отключена.\n"
-            "Статистика недоступна."
-        )
-        return
-    
     try:
         stats = rag_system.get_collection_stats()
         
-        if 'error' in stats:
-            await update.message.reply_text(f"❌ Ошибка получения статистики: {stats['error']}")
+        if "error" in stats:
+            await update.message.reply_text(f"❌ {stats['error']}")
             return
         
         text = f"📊 <b>Статистика RAG системы:</b>\n\n"
-        text += f"📄 Всего документов: {stats['total_documents']}\n"
-        text += f"📁 Коллекция: {stats['collection_name']}\n"
-        text += f"🟢 Статус: {stats['status']}\n\n"
-        
-        if stats['total_documents'] > 0:
-            text += f"✅ RAG система активна и готова к поиску\n"
-            text += f"🔍 Используйте команды:\n"
-            text += f"• 'Найди документ [запрос]'\n"
-            text += f"• 'Найди по типу [тип] [запрос]'\n"
-            text += f"• 'Найди по контрагенту [название] [запрос]'"
-        else:
-            text += f"⚠️ Коллекция пуста\n"
-            text += f"📝 Добавьте документы для активации поиска"
+        text += f"📋 Всего документов: {stats.get('total_documents', 0)}\n"
+        text += f"📁 Коллекция: {stats.get('collection_name', 'Неизвестно')}\n"
+        text += f"🟢 Статус: {stats.get('status', 'Неизвестно')}\n"
         
         await update.message.reply_text(text, parse_mode='HTML')
         

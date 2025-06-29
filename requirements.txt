@@ -31,7 +31,7 @@ Pillow==10.0.1
 SpeechRecognition==3.10.0
 pydub==0.25.1
 
-# Temporarily disabled heavy ML dependencies
-# huggingface-hub==0.16.4
-# sentence-transformers==2.2.2
-# chromadb==0.4.18
+# RAG and ML (optimized versions)
+huggingface-hub==0.16.4
+sentence-transformers==2.2.2
+chromadb==0.4.18
