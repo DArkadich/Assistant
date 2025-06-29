@@ -22,6 +22,7 @@ from core.memory import chat_memory
 from core.speech_recognition import speech_recognizer
 from core.email_analyzer import email_analyzer
 from core.partners import partners_manager
+from core.amocrm import amocrm
 from email.message import EmailMessage
 from email.policy import EmailPriority, EmailStatus
 
@@ -1371,250 +1372,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_bulk_proposals(update, context)
         return
 
+    # AmoCRM команды
+    if re.search(r"(контакты amocrm|amocrm контакты|контакты в crm)", user_text, re.I):
+        await handle_amocrm_contacts(update, context)
+        return
+    
+    if re.search(r"(сделки amocrm|amocrm сделки|лиды в crm)", user_text, re.I):
+        await handle_amocrm_leads(update, context)
+        return
+    
+    if re.search(r"(аналитика amocrm|amocrm аналитика|crm аналитика)", user_text, re.I):
+        await handle_amocrm_analytics(update, context)
+        return
+    
+    if re.search(r"(синхронизация amocrm|amocrm синхронизация|синхронизировать партнёров)", user_text, re.I):
+        await handle_amocrm_sync_partners(update, context)
+        return
+    
+    if re.search(r"(создай контакт|добавь контакт)", user_text, re.I):
+        await handle_amocrm_create_contact(update, context)
+        return
+    
+    if re.search(r"(создай сделку|добавь сделку)", user_text, re.I):
+        await handle_amocrm_create_lead(update, context)
+        return
+    
+    if re.search(r"(воронки amocrm|amocrm воронки|воронки продаж)", user_text, re.I):
+        await handle_amocrm_pipelines(update, context)
+        return
+    
+    if re.search(r"(задачи amocrm|amocrm задачи|задачи в crm)", user_text, re.I):
+        await handle_amocrm_tasks(update, context)
+        return
+
     # Если не задача и не финансы — fallback на GPT-ответ
     reply = await ask_openai(user_text)
     await update.message.reply_text(reply)
 
-def extract_date_phrase_for_finance(text):
-    import re
-    patterns = [
-        r"вчера", r"сегодня", r"завтра", r"позавчера", r"послезавтра",
-        r"\d{1,2} [а-я]+", r"\d{1,2}\.\d{1,2}\.\d{2,4}", r"\d{4}-\d{2}-\d{2}",
-        r"понедельник|вторник|среда|четверг|пятница|суббота|воскресенье"
-    ]
-    for pat in patterns:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m:
-            return m.group(0)
-    return None
-
-def run_bot():
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    start_scheduler(app)
-    start_calendar_polling(app)
-    
-    # Обработчик для текстовых сообщений
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # Обработчик для фотографий
-    app.add_handler(MessageHandler(filters.PHOTO, handle_document_photo))
-    
-    # Обработчик для голосовых сообщений
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
-    
-    app.run_polling()
-
-# --- RAG функции ---
-async def handle_rag_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка семантического поиска в документах."""
-    user_text = update.message.text
-    
-    # Извлекаем запрос для поиска
-    query_match = re.search(r"(найди документ|поиск документов|семантический поиск|rag поиск)\s+(.+)", user_text, re.I)
-    if not query_match:
-        await update.message.reply_text(
-            "🔍 <b>Семантический поиск документов</b>\n\n"
-            "Используйте:\n"
-            "• 'Найди документ [запрос]' - поиск по содержимому\n"
-            "• 'Поиск документов [запрос]' - семантический поиск\n"
-            "• 'RAG поиск [запрос]' - векторный поиск\n\n"
-            "Примеры:\n"
-            "• Найди документ про оплату услуг\n"
-            "• Поиск документов контракт разработка\n"
-            "• RAG поиск накладная поставка товаров",
-            parse_mode='HTML'
-        )
-        return
-    
-    query = query_match.group(2).strip()
-    
-    try:
-        # Выполняем поиск
-        results = rag_system.search_documents(query, n_results=5)
-        
-        if not results:
-            await update.message.reply_text(f"🔍 По запросу '{query}' документы не найдены.")
-            return
-        
-        # Формируем ответ
-        text = f"🔍 <b>Результаты поиска по запросу '{query}':</b>\n\n"
-        
-        for i, doc in enumerate(results, 1):
-            metadata = doc.get('metadata', {})
-            distance = doc.get('distance', 0)
-            # Более точный расчет релевантности (distance обычно от 0 до 2)
-            relevance = max(0, min(100, int((1 - distance) * 100)))
-            
-            text += f"📋 <b>{i}. {metadata.get('type', 'Документ').title()}</b>\n"
-            text += f"   Контрагент: {metadata.get('counterparty_name', 'Не указан')}\n"
-            text += f"   Сумма: {metadata.get('amount', 'Не указана')} руб.\n"
-            text += f"   Дата: {metadata.get('date', 'Не указана')}\n"
-            text += f"   Релевантность: {relevance}%\n"
-            text += f"   ID: {doc['id']}\n\n"
-        
-        await update.message.reply_text(text, parse_mode='HTML')
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка поиска: {e}")
-
-async def handle_search_by_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Поиск документов по типу."""
-    user_text = update.message.text
-    
-    # Извлекаем тип документа
-    type_match = re.search(r"(найди по типу|поиск по типу|документы типа)\s+(накладная|упд|гтд|счёт|контракт|акт)(?:\s+(.+))?", user_text, re.I)
-    if not type_match:
-        await update.message.reply_text(
-            "📋 <b>Поиск документов по типу</b>\n\n"
-            "Используйте:\n"
-            "• 'Найди по типу [тип] [запрос]' - поиск документов определенного типа\n"
-            "• 'Поиск по типу [тип] [запрос]' - семантический поиск по типу\n\n"
-            "Типы документов:\n"
-            "• накладная, упд, гтд, счёт, контракт, акт\n\n"
-            "Примеры:\n"
-            "• Найди по типу контракт разработка\n"
-            "• Поиск по типу накладная поставка",
-            parse_mode='HTML'
-        )
-        return
-    
-    doc_type = type_match.group(2).lower()
-    query = type_match.group(3).strip() if type_match.group(3) else ""
-    
-    try:
-        # Выполняем поиск по типу
-        results = rag_system.search_by_type(doc_type, query, n_results=5)
-        
-        if not results:
-            type_text = f" типа '{doc_type}'"
-            query_text = f" по запросу '{query}'" if query else ""
-            await update.message.reply_text(f"📋 Документы{type_text}{query_text} не найдены.")
-            return
-        
-        # Формируем ответ
-        text = f"📋 <b>Документы типа '{doc_type}'"
-        if query:
-            text += f" по запросу '{query}'"
-        text += f":</b>\n\n"
-        
-        for i, doc in enumerate(results, 1):
-            metadata = doc.get('metadata', {})
-            distance = doc.get('distance', 0)
-            # Более точный расчет релевантности (distance обычно от 0 до 2)
-            relevance = max(0, min(100, int((1 - distance) * 100)))
-            
-            text += f"📄 <b>{i}. {metadata.get('type', 'Документ').title()}</b>\n"
-            text += f"   Контрагент: {metadata.get('counterparty_name', 'Не указан')}\n"
-            text += f"   Сумма: {metadata.get('amount', 'Не указана')} руб.\n"
-            text += f"   Дата: {metadata.get('date', 'Не указана')}\n"
-            text += f"   Релевантность: {relevance}%\n"
-            text += f"   ID: {doc['id']}\n\n"
-        
-        await update.message.reply_text(text, parse_mode='HTML')
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка поиска: {e}")
-
-async def handle_search_by_counterparty(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Поиск документов по контрагенту."""
-    user_text = update.message.text
-    
-    # Извлекаем название контрагента и запрос
-    counterparty_match = re.search(r"(найди по контрагенту|поиск по контрагенту|документы контрагента)\s+([а-яёa-z0-9\s]+?)(?:\s+(.+))?$", user_text, re.I)
-    if not counterparty_match:
-        await update.message.reply_text(
-            "🏢 <b>Поиск документов по контрагенту</b>\n\n"
-            "Используйте:\n"
-            "• 'Найди по контрагенту [название] [запрос]' - поиск документов контрагента\n"
-            "• 'Поиск по контрагенту [название] [запрос]' - семантический поиск\n\n"
-            "Примеры:\n"
-            "• Найди по контрагенту ООО Рога и Копыта\n"
-            "• Поиск по контрагенту ИП Иванов контракт",
-            parse_mode='HTML'
-        )
-        return
-    
-    counterparty = counterparty_match.group(2).strip()
-    query = counterparty_match.group(3).strip() if counterparty_match.group(3) else ""
-    
-    try:
-        # Выполняем поиск по контрагенту
-        results = rag_system.search_by_counterparty(counterparty, query, n_results=5)
-        
-        if not results:
-            query_text = f" по запросу '{query}'" if query else ""
-            await update.message.reply_text(f"🏢 Документы контрагента '{counterparty}'{query_text} не найдены.")
-            return
-        
-        # Формируем ответ
-        text = f"🏢 <b>Документы контрагента '{counterparty}'"
-        if query:
-            text += f" по запросу '{query}'"
-        text += f":</b>\n\n"
-        
-        for i, doc in enumerate(results, 1):
-            metadata = doc.get('metadata', {})
-            distance = doc.get('distance', 0)
-            # Более точный расчет релевантности (distance обычно от 0 до 2)
-            relevance = max(0, min(100, int((1 - distance) * 100)))
-            
-            text += f"📄 <b>{i}. {metadata.get('type', 'Документ').title()}</b>\n"
-            text += f"   Сумма: {metadata.get('amount', 'Не указана')} руб.\n"
-            text += f"   Дата: {metadata.get('date', 'Не указана')}\n"
-            text += f"   Проект: {metadata.get('project', 'Не указан')}\n"
-            text += f"   Релевантность: {relevance}%\n"
-            text += f"   ID: {doc['id']}\n\n"
-        
-        await update.message.reply_text(text, parse_mode='HTML')
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка поиска: {e}")
-
-async def handle_rag_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать статистику RAG системы."""
-    try:
-        stats = rag_system.get_collection_stats()
-        
-        if "error" in stats:
-            await update.message.reply_text(f"❌ {stats['error']}")
-            return
-        
-        text = f"📊 <b>Статистика RAG системы:</b>\n\n"
-        text += f"📋 Всего документов: {stats.get('total_documents', 0)}\n"
-        text += f"📁 Коллекция: {stats.get('collection_name', 'Неизвестно')}\n"
-        text += f"🟢 Статус: {stats.get('status', 'Неизвестно')}\n"
-        
-        await update.message.reply_text(text, parse_mode='HTML')
-        
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка получения статистики: {e}")
-
-# --- Обработка фотографий документов ---
-async def handle_document_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка фотографий документов."""
-    try:
-        # Получаем фото с максимальным разрешением
-        photo = update.message.photo[-1]
-        
-        # Скачиваем фото
-        file = await context.bot.get_file(photo.file_id)
-        temp_path = f"/tmp/doc_photo_{photo.file_id}.jpg"
-        
-        await file.download_to_drive(temp_path)
-        
-        # Отправляем сообщение о начале обработки
-        processing_msg = await update.message.reply_text(
-            "📸 Обрабатываю фотографию документа...\n"
-            "🔍 Выполняю OCR распознавание..."
-        )
-        
-        # Обрабатываем изображение
-        result = image_processor.process_image(temp_path)
-        
-        if "error" in result:
-            await processing_msg.edit_text(f"❌ Ошибка обработки: {result['error']}")
-            return
-        
         # Получаем информацию о документе
         doc_info = result["doc_info"]
         text = result["text"]
@@ -2596,3 +2390,295 @@ async def handle_bulk_proposals(update: Update, context: ContextTypes.DEFAULT_TY
         
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка генерации предложений: {e}")
+
+# --- AmoCRM Commands ---
+
+async def handle_amocrm_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать контакты из AmoCRM."""
+    user_text = update.message.text.lower()
+    
+    # Определяем лимит
+    limit = 10
+    if "20" in user_text:
+        limit = 20
+    elif "50" in user_text:
+        limit = 50
+    
+    # Поиск по имени
+    query = None
+    if "найди" in user_text or "поиск" in user_text:
+        # Извлекаем имя после "найди" или "поиск"
+        import re
+        match = re.search(r'(?:найди|поиск)\s+([^\s]+)', user_text)
+        if match:
+            query = match.group(1)
+    
+    try:
+        contacts = amocrm.get_contacts(limit=limit, query=query)
+        
+        if not contacts:
+            query_text = f" по запросу '{query}'" if query else ""
+            await update.message.reply_text(f"👥 Нет контактов в AmoCRM{query_text}")
+            return
+        
+        text = f"👥 <b>Контакты в AmoCRM"
+        if query:
+            text += f" (поиск: {query})"
+        text += f":</b>\n\n"
+        
+        for i, contact in enumerate(contacts[:10], 1):
+            text += f"{i}. <b>{contact['name']}</b>\n"
+            text += f"   ID: {contact['id']}\n"
+            
+            # Добавляем email и телефон если есть
+            if 'custom_fields_values' in contact:
+                for field in contact['custom_fields_values']:
+                    if field.get('field_id') == 1:  # Email
+                        text += f"   Email: {field['values'][0]['value']}\n"
+                    elif field.get('field_id') == 2:  # Phone
+                        text += f"   Телефон: {field['values'][0]['value']}\n"
+            
+            text += f"   Создан: {datetime.fromtimestamp(contact.get('created_at', 0)).strftime('%d.%m.%Y')}\n\n"
+        
+        if len(contacts) > 10:
+            text += f"... и еще {len(contacts) - 10} контактов"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения контактов: {e}")
+
+async def handle_amocrm_leads(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать сделки из AmoCRM."""
+    user_text = update.message.text.lower()
+    
+    # Определяем лимит
+    limit = 10
+    if "20" in user_text:
+        limit = 20
+    elif "50" in user_text:
+        limit = 50
+    
+    try:
+        leads = amocrm.get_leads(limit=limit)
+        
+        if not leads:
+            await update.message.reply_text("💼 Нет сделок в AmoCRM")
+            return
+        
+        text = f"💼 <b>Сделки в AmoCRM:</b>\n\n"
+        
+        for i, lead in enumerate(leads[:10], 1):
+            text += f"{i}. <b>{lead['name']}</b>\n"
+            text += f"   ID: {lead['id']}\n"
+            text += f"   Статус ID: {lead.get('status_id', 'Не указан')}\n"
+            text += f"   Сумма: {lead.get('price', 0)} ₽\n"
+            text += f"   Создана: {datetime.fromtimestamp(lead.get('created_at', 0)).strftime('%d.%m.%Y')}\n\n"
+        
+        if len(leads) > 10:
+            text += f"... и еще {len(leads) - 10} сделок"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения сделок: {e}")
+
+async def handle_amocrm_analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать аналитику AmoCRM."""
+    user_text = update.message.text.lower()
+    
+    # Определяем период
+    period = "month"
+    if "неделя" in user_text or "неделю" in user_text:
+        period = "week"
+    elif "месяц" in user_text or "месяца" in user_text:
+        period = "month"
+    
+    try:
+        analytics = amocrm.get_analytics(period=period)
+        
+        text = f"📊 <b>Аналитика AmoCRM за {period}:</b>\n\n"
+        text += f"📈 Всего лидов: {analytics['total_leads']}\n"
+        text += f"✅ Выигранных сделок: {analytics['won_leads']}\n"
+        text += f"📊 Конверсия: {analytics['conversion_rate']:.1f}%\n"
+        text += f"💰 Общая выручка: {analytics['total_revenue']} ₽\n"
+        text += f"💎 Средний чек: {analytics['avg_deal_size']:.0f} ₽\n"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения аналитики: {e}")
+
+async def handle_amocrm_sync_partners(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Синхронизация партнёров из Google Sheets в AmoCRM."""
+    try:
+        await update.message.reply_text("🔄 Синхронизирую партнёров из Google Sheets в AmoCRM...")
+        
+        result = amocrm.sync_partners_from_sheet(partners_manager)
+        
+        text = f"✅ <b>Синхронизация завершена:</b>\n\n"
+        text += f"🆕 Создано контактов: {result['created']}\n"
+        text += f"🔄 Обновлено контактов: {result['updated']}\n"
+        text += f"❌ Ошибок: {result['errors']}\n"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка синхронизации: {e}")
+
+async def handle_amocrm_create_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Создание контакта в AmoCRM."""
+    user_text = update.message.text
+    
+    # Парсим команду создания контакта
+    pattern = r"(?:создай|добавь)\s+контакт\s+([^,]+)(?:,\s+email\s+([^,]+))?(?:,\s+телефон\s+([^,]+))?"
+    match = re.search(pattern, user_text, re.I)
+    
+    if not match:
+        await update.message.reply_text(
+            "👤 <b>Создание контакта в AmoCRM</b>\n\n"
+            "Формат:\n"
+            "• 'Создай контакт [имя]'\n"
+            "• 'Создай контакт [имя], email [email]'\n"
+            "• 'Создай контакт [имя], email [email], телефон [телефон]'\n\n"
+            "Примеры:\n"
+            "• Создай контакт Иван Петров\n"
+            "• Создай контакт ООО Рога, email info@roga.ru\n"
+            "• Создай контакт ИП Копыта, email kopyta@mail.ru, телефон +7-999-123-45-67",
+            parse_mode='HTML'
+        )
+        return
+    
+    name = match.group(1).strip()
+    email = match.group(2).strip() if match.group(2) else None
+    phone = match.group(3).strip() if match.group(3) else None
+    
+    try:
+        contact = amocrm.create_contact(name=name, email=email, phone=phone)
+        
+        if contact:
+            text = f"✅ <b>Контакт создан в AmoCRM:</b>\n\n"
+            text += f"👤 Имя: {contact['name']}\n"
+            text += f"🆔 ID: {contact['id']}\n"
+            if email:
+                text += f"📧 Email: {email}\n"
+            if phone:
+                text += f"📞 Телефон: {phone}\n"
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+        else:
+            await update.message.reply_text("❌ Ошибка создания контакта")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+async def handle_amocrm_create_lead(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Создание сделки в AmoCRM."""
+    user_text = update.message.text
+    
+    # Парсим команду создания сделки
+    pattern = r"(?:создай|добавь)\s+сделку\s+([^,]+)(?:,\s+контакт\s+([^,]+))?(?:,\s+сумма\s+(\d+))?"
+    match = re.search(pattern, user_text, re.I)
+    
+    if not match:
+        await update.message.reply_text(
+            "💼 <b>Создание сделки в AmoCRM</b>\n\n"
+            "Формат:\n"
+            "• 'Создай сделку [название]'\n"
+            "• 'Создай сделку [название], контакт [имя]'\n"
+            "• 'Создай сделку [название], контакт [имя], сумма [число]'\n\n"
+            "Примеры:\n"
+            "• Создай сделку Разработка сайта\n"
+            "• Создай сделку Консультация, контакт Иван Петров\n"
+            "• Создай сделку Дизайн логотипа, контакт ООО Рога, сумма 50000",
+            parse_mode='HTML'
+        )
+        return
+    
+    name = match.group(1).strip()
+    contact_name = match.group(2).strip() if match.group(2) else None
+    amount = int(match.group(3)) if match.group(3) else 0
+    
+    try:
+        contact_id = None
+        if contact_name:
+            # Ищем контакт по имени
+            contacts = amocrm.get_contacts(query=contact_name)
+            if contacts:
+                contact_id = contacts[0]['id']
+            else:
+                await update.message.reply_text(f"❌ Контакт '{contact_name}' не найден")
+                return
+        
+        lead = amocrm.create_lead(name=name, contact_id=contact_id, custom_fields={1: amount})
+        
+        if lead:
+            text = f"✅ <b>Сделка создана в AmoCRM:</b>\n\n"
+            text += f"💼 Название: {lead['name']}\n"
+            text += f"🆔 ID: {lead['id']}\n"
+            if contact_name:
+                text += f"👤 Контакт: {contact_name}\n"
+            if amount > 0:
+                text += f"💰 Сумма: {amount} ₽\n"
+            
+            await update.message.reply_text(text, parse_mode='HTML')
+        else:
+            await update.message.reply_text("❌ Ошибка создания сделки")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+async def handle_amocrm_pipelines(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать воронки продаж в AmoCRM."""
+    try:
+        pipelines = amocrm.get_pipelines()
+        
+        if not pipelines:
+            await update.message.reply_text("🔄 Нет воронок продаж в AmoCRM")
+            return
+        
+        text = f"🔄 <b>Воронки продаж в AmoCRM:</b>\n\n"
+        
+        for i, pipeline in enumerate(pipelines, 1):
+            text += f"{i}. <b>{pipeline['name']}</b>\n"
+            text += f"   ID: {pipeline['id']}\n"
+            text += f"   Активна: {'Да' if pipeline.get('is_main', False) else 'Нет'}\n\n"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения воронок: {e}")
+
+async def handle_amocrm_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать задачи в AmoCRM."""
+    user_text = update.message.text.lower()
+    
+    # Определяем лимит
+    limit = 10
+    if "20" in user_text:
+        limit = 20
+    elif "50" in user_text:
+        limit = 50
+    
+    try:
+        tasks = amocrm.get_tasks(limit=limit)
+        
+        if not tasks:
+            await update.message.reply_text("📋 Нет задач в AmoCRM")
+            return
+        
+        text = f"📋 <b>Задачи в AmoCRM:</b>\n\n"
+        
+        for i, task in enumerate(tasks[:10], 1):
+            text += f"{i}. <b>{task['text']}</b>\n"
+            text += f"   ID: {task['id']}\n"
+            text += f"   Тип: {task.get('entity_type', 'Не указан')}\n"
+            text += f"   Создана: {datetime.fromtimestamp(task.get('created_at', 0)).strftime('%d.%m.%Y')}\n\n"
+        
+        if len(tasks) > 10:
+            text += f"... и еще {len(tasks) - 10} задач"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения задач: {e}")
