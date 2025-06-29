@@ -46,28 +46,89 @@ class ImageProcessor:
         # Конвертируем в оттенки серого
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
-        # Увеличиваем контраст
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-        enhanced = clahe.apply(gray)
+        # Увеличиваем размер изображения для лучшего распознавания
+        height, width = gray.shape
+        scale_factor = 2.0
+        new_height, new_width = int(height * scale_factor), int(width * scale_factor)
+        resized = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
         
-        # Убираем шум
-        denoised = cv2.fastNlMeansDenoising(enhanced)
+        # Увеличиваем контраст с помощью CLAHE
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        enhanced = clahe.apply(resized)
         
-        # Бинаризация
-        _, binary = cv2.threshold(denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # Убираем шум с помощью медианного фильтра
+        denoised = cv2.medianBlur(enhanced, 3)
         
-        return binary
+        # Дополнительная фильтрация шума
+        denoised = cv2.fastNlMeansDenoising(denoised, None, 10, 7, 21)
+        
+        # Адаптивная бинаризация для лучшего разделения текста и фона
+        binary = cv2.adaptiveThreshold(
+            denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        )
+        
+        # Морфологические операции для очистки
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        
+        return cleaned
     
     def _extract_text(self, image: np.ndarray) -> str:
         """Извлечь текст из изображения."""
         try:
-            # Настройки OCR для русского языка
-            config = '--oem 3 --psm 6 -l rus+eng'
-            text = pytesseract.image_to_string(image, config=config)
-            return text.strip()
+            # Улучшенные настройки OCR для русского языка
+            config = '--oem 3 --psm 6 -l rus+eng --dpi 300 --tessdata-dir /usr/share/tessdata'
+            
+            # Пробуем разные PSM режимы для лучшего результата
+            psm_modes = [6, 8, 13]  # 6=блок текста, 8=одна строка, 13=сырой текст
+            best_text = ""
+            best_confidence = 0
+            
+            for psm in psm_modes:
+                config = f'--oem 3 --psm {psm} -l rus+eng --dpi 300'
+                text = pytesseract.image_to_string(image, config=config)
+                
+                # Простая оценка качества текста
+                confidence = self._estimate_text_quality(text)
+                if confidence > best_confidence:
+                    best_text = text
+                    best_confidence = confidence
+            
+            return best_text.strip()
+            
         except Exception as e:
             print(f"Ошибка OCR: {e}")
-            return ""
+            # Fallback на базовые настройки
+            try:
+                config = '--oem 3 --psm 6 -l rus+eng'
+                text = pytesseract.image_to_string(image, config=config)
+                return text.strip()
+            except:
+                return ""
+    
+    def _estimate_text_quality(self, text: str) -> float:
+        """Оценить качество распознанного текста."""
+        if not text:
+            return 0
+        
+        # Подсчитываем русские буквы
+        russian_chars = sum(1 for c in text if 'а' <= c.lower() <= 'я' or c.lower() == 'ё')
+        total_chars = len(text.replace(' ', '').replace('\n', ''))
+        
+        if total_chars == 0:
+            return 0
+        
+        # Процент русских букв
+        russian_ratio = russian_chars / total_chars
+        
+        # Длина текста (предпочитаем более длинные тексты)
+        length_score = min(len(text) / 100, 1.0)
+        
+        # Отсутствие бессмысленных символов
+        nonsense_chars = sum(1 for c in text if c in '|[]{}()<>')
+        nonsense_penalty = max(0, 1 - nonsense_chars / len(text))
+        
+        return russian_ratio * length_score * nonsense_penalty
     
     def _analyze_document(self, text: str) -> dict:
         """Анализировать документ и извлечь ключевую информацию."""
@@ -199,18 +260,22 @@ class ImageProcessor:
         """Рассчитать уверенность в распознавании."""
         confidence = 0
         
+        # Базовые баллы за найденную информацию
         if doc_info["type"] and doc_info["type"] != "неизвестно":
             confidence += 20
         if doc_info["number"]:
-            confidence += 20
+            confidence += 15
         if doc_info["date"]:
-            confidence += 20
+            confidence += 15
         if doc_info["amount"]:
             confidence += 20
         if doc_info["counterparty"]:
             confidence += 20
         
-        return confidence
+        # Дополнительные баллы за качество текста
+        # (это будет рассчитано в _extract_text)
+        
+        return min(confidence, 100)
     
     def images_to_pdf(self, image_paths: List[str], output_path: str) -> bool:
         """Объединить несколько изображений в один PDF."""
