@@ -11,7 +11,7 @@ import pytz
 import dateparser
 import asyncio
 import threading
-from core.calendar import calendar_manager
+from core.calendar import *
 from core.finances import *
 from core.planner import *
 from core.drive_manager import drive_manager
