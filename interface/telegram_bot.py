@@ -16,6 +16,7 @@ from core.finances import *
 from core.planner import *
 from core.drive_manager import drive_manager
 from core.rag_system import rag_system
+from core.image_processor import image_processor
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -1286,6 +1287,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_rag_stats(update, context)
         return
     
+    # Обработка фотографий документов
+    if update.message.photo:
+        await handle_document_photo(update, context)
+        return
+    
+    # Обработка действий с распознанными документами
+    if context.user_data.get('processed_document'):
+        await handle_document_action(update, context)
+        return
+    
     # Если не задача и не финансы — fallback на GPT-ответ
     reply = await ask_openai(user_text)
     await update.message.reply_text(reply)
@@ -1504,3 +1515,172 @@ async def handle_rag_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка получения статистики: {e}")
+
+# --- Обработка фотографий документов ---
+async def handle_document_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка фотографий документов."""
+    try:
+        # Получаем фото с максимальным разрешением
+        photo = update.message.photo[-1]
+        
+        # Скачиваем фото
+        file = await context.bot.get_file(photo.file_id)
+        temp_path = f"/tmp/doc_photo_{photo.file_id}.jpg"
+        
+        await file.download_to_drive(temp_path)
+        
+        # Отправляем сообщение о начале обработки
+        processing_msg = await update.message.reply_text(
+            "📸 Обрабатываю фотографию документа...\n"
+            "🔍 Выполняю OCR распознавание..."
+        )
+        
+        # Обрабатываем изображение
+        result = image_processor.process_image(temp_path)
+        
+        if "error" in result:
+            await processing_msg.edit_text(f"❌ Ошибка обработки: {result['error']}")
+            return
+        
+        # Получаем информацию о документе
+        doc_info = result["doc_info"]
+        text = result["text"]
+        
+        # Формируем отчет о распознавании
+        report = f"📄 <b>Документ распознан:</b>\n\n"
+        
+        if doc_info["type"] and doc_info["type"] != "неизвестно":
+            report += f"📋 Тип: {doc_info['type'].title()}\n"
+        if doc_info["number"]:
+            report += f"🔢 Номер: {doc_info['number']}\n"
+        if doc_info["date"]:
+            report += f"📅 Дата: {doc_info['date']}\n"
+        if doc_info["amount"]:
+            report += f"💰 Сумма: {doc_info['amount']}\n"
+        if doc_info["counterparty"]:
+            report += f"🏢 Контрагент: {doc_info['counterparty']}\n"
+        
+        report += f"🎯 Уверенность: {doc_info['confidence']}%\n\n"
+        
+        # Показываем первые 200 символов текста
+        if text:
+            preview = text[:200] + "..." if len(text) > 200 else text
+            report += f"📝 <b>Распознанный текст:</b>\n{preview}\n\n"
+        
+        # Предлагаем действия
+        report += "🔧 <b>Действия:</b>\n"
+        report += "• 'Сохранить PDF' - создать PDF из изображения\n"
+        report += "• 'Сохранить текст' - создать PDF из распознанного текста\n"
+        report += "• 'Добавить в базу' - добавить документ в систему\n"
+        report += "• 'Отмена' - отменить обработку"
+        
+        # Сохраняем данные в контексте пользователя
+        context.user_data['processed_document'] = {
+            'image_path': temp_path,
+            'text': text,
+            'doc_info': doc_info,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        await processing_msg.edit_text(report, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка обработки фотографии: {e}")
+
+async def handle_document_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка действий с распознанным документом."""
+    user_text = update.message.text.lower()
+    
+    if 'processed_document' not in context.user_data:
+        await update.message.reply_text("❌ Нет обработанного документа. Отправьте фотографию документа.")
+        return
+    
+    doc_data = context.user_data['processed_document']
+    
+    try:
+        if 'сохранить pdf' in user_text:
+            # Создаем PDF из изображения
+            pdf_path = f"/tmp/doc_{doc_data['timestamp']}.pdf"
+            success = image_processor.images_to_pdf([doc_data['image_path']], pdf_path)
+            
+            if success:
+                # Загружаем в Google Drive
+                drive_file_id = drive_manager.upload_file(pdf_path, f"doc_{doc_data['timestamp']}")
+                
+                if drive_file_id:
+                    await update.message.reply_text(
+                        f"✅ PDF создан и загружен в Google Drive\n"
+                        f"📁 ID файла: {drive_file_id}"
+                    )
+                else:
+                    await update.message.reply_text("❌ Ошибка загрузки в Google Drive")
+            else:
+                await update.message.reply_text("❌ Ошибка создания PDF")
+        
+        elif 'сохранить текст' in user_text:
+            # Создаем PDF из распознанного текста
+            pdf_path = f"/tmp/doc_text_{doc_data['timestamp']}.pdf"
+            title = f"{doc_data['doc_info']['type'].title()} {doc_data['doc_info']['number'] or ''}"
+            success = image_processor.create_pdf_from_text(doc_data['text'], pdf_path, title)
+            
+            if success:
+                # Загружаем в Google Drive
+                drive_file_id = drive_manager.upload_file(pdf_path, f"doc_text_{doc_data['timestamp']}")
+                
+                if drive_file_id:
+                    await update.message.reply_text(
+                        f"✅ PDF из текста создан и загружен в Google Drive\n"
+                        f"📁 ID файла: {drive_file_id}"
+                    )
+                else:
+                    await update.message.reply_text("❌ Ошибка загрузки в Google Drive")
+            else:
+                await update.message.reply_text("❌ Ошибка создания PDF из текста")
+        
+        elif 'добавить в базу' in user_text:
+            # Добавляем документ в систему
+            doc_info = doc_data['doc_info']
+            
+            if doc_info['type'] and doc_info['type'] != 'неизвестно':
+                # Создаем PDF для загрузки
+                pdf_path = f"/tmp/doc_final_{doc_data['timestamp']}.pdf"
+                image_processor.images_to_pdf([doc_data['image_path']], pdf_path)
+                
+                # Добавляем документ
+                doc_id = add_document(
+                    doc_type=doc_info['type'],
+                    counterparty_name=doc_info['counterparty'] or 'Не указан',
+                    amount=doc_info['amount'] or 0,
+                    date=doc_info['date'] or datetime.now().strftime('%Y-%m-%d'),
+                    description=f"Документ распознан из фотографии. Уверенность: {doc_info['confidence']}%",
+                    file_path=pdf_path
+                )
+                
+                if doc_id:
+                    await update.message.reply_text(
+                        f"✅ Документ добавлен в систему!\n"
+                        f"📄 ID: {doc_id}\n"
+                        f"📋 Тип: {doc_info['type'].title()}\n"
+                        f"🎯 Уверенность: {doc_info['confidence']}%"
+                    )
+                else:
+                    await update.message.reply_text("❌ Ошибка добавления документа в систему")
+            else:
+                await update.message.reply_text("❌ Не удалось определить тип документа для добавления в базу")
+        
+        elif 'отмена' in user_text:
+            # Очищаем данные
+            del context.user_data['processed_document']
+            await update.message.reply_text("❌ Обработка отменена")
+        
+        else:
+            await update.message.reply_text(
+                "🔧 Доступные действия:\n"
+                "• 'Сохранить PDF' - создать PDF из изображения\n"
+                "• 'Сохранить текст' - создать PDF из распознанного текста\n"
+                "• 'Добавить в базу' - добавить документ в систему\n"
+                "• 'Отмена' - отменить обработку"
+            )
+    
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка выполнения действия: {e}")

@@ -17,3 +17,9 @@ chromadb>=0.4.0
 sentence-transformers>=2.2.0
 numpy>=1.21.0
 scikit-learn>=1.0.0
+# Обработка изображений и OCR
+opencv-python>=4.8.0
+pytesseract>=0.3.10
+pdf2image>=1.16.0
+img2pdf>=0.4.0
+reportlab>=4.0.0
