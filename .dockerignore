@@ -46,6 +46,23 @@ env/
 ehthumbs.db
 Thumbs.db
 
+# Test files
+test_*.py
+*_test.py
+tests/
+
+# Documentation
+README.md
+*.md
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
 # Project specific
 *.json
 !service_account.json
@@ -54,9 +71,4 @@ test_*.py
 README.md
 Dockerfile
 docker-compose.yml
-.github/
-
-# Temporary files
-/tmp/
-*.tmp
-*.temp 
+.github/ 
