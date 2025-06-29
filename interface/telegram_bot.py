@@ -1287,11 +1287,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_rag_stats(update, context)
         return
     
-    # Обработка фотографий документов
-    if update.message.photo:
-        await handle_document_photo(update, context)
-        return
-    
     # Обработка действий с распознанными документами
     if context.user_data.get('processed_document'):
         await handle_document_action(update, context)
@@ -1318,7 +1313,13 @@ def run_bot():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     start_scheduler(app)
     start_calendar_polling(app)
+    
+    # Обработчик для текстовых сообщений
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Обработчик для фотографий
+    app.add_handler(MessageHandler(filters.PHOTO, handle_document_photo))
+    
     app.run_polling()
 
 # --- RAG функции ---
