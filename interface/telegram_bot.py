@@ -21,6 +21,7 @@ from core.goals import goals_manager, GoalType, GoalPeriod
 from core.memory import chat_memory
 from core.speech_recognition import speech_recognizer
 from core.email_analyzer import email_analyzer
+from core.partners import partners_manager
 from email.message import EmailMessage
 from email.policy import EmailPriority, EmailStatus
 
@@ -1345,6 +1346,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_who_discussed(update, context)
         return
 
+    # Партнёрская сеть
+    if re.search(r"(партнёры сводка|сводка партнёров|partners summary)", user_text, re.I):
+        await handle_partners_summary(update, context)
+        return
+    
+    if re.search(r"добавь партнёра", user_text, re.I):
+        await handle_add_partner(update, context)
+        return
+    
+    if re.search(r"(партнёры для прозвона|прозвон|звонить)", user_text, re.I):
+        await handle_partners_for_calling(update, context)
+        return
+    
+    if re.search(r"(партнёры для рассылки|email рассылка|рассылка)", user_text, re.I):
+        await handle_partners_for_emailing(update, context)
+        return
+    
+    if re.search(r"(предложение для|proposal для)", user_text, re.I):
+        await handle_generate_proposal(update, context)
+        return
+    
+    if re.search(r"(массовые предложения|bulk proposals|предложения для группы)", user_text, re.I):
+        await handle_bulk_proposals(update, context)
+        return
+
     # Если не задача и не финансы — fallback на GPT-ответ
     reply = await ask_openai(user_text)
     await update.message.reply_text(reply)
@@ -2312,3 +2338,261 @@ async def handle_email_config(update: Update, context: ContextTypes.DEFAULT_TYPE
             "Поддерживаются Gmail и Яндекс.Почта",
             parse_mode='HTML'
         )
+
+# --- Партнёрская сеть ---
+async def handle_partners_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать сводку по партнёрской сети."""
+    try:
+        summary = partners_manager.get_partners_summary()
+        
+        text = "🤝 <b>Сводка партнёрской сети:</b>\n\n"
+        text += f"📊 Всего партнёров: {summary['total']}\n"
+        text += f"✅ Активных: {summary['active_partners']}\n"
+        text += f"📞 Нуждаются в контакте: {summary['needs_contact']}\n\n"
+        
+        text += "📈 <b>По статусам:</b>\n"
+        for status, count in summary['by_status'].items():
+            status_names = {
+                "prospect": "Перспективные",
+                "lead": "Лиды", 
+                "active": "Активные",
+                "partner": "Партнёры",
+                "inactive": "Неактивные"
+            }
+            text += f"   {status_names.get(status, status)}: {count}\n"
+        
+        text += "\n📡 <b>По каналам:</b>\n"
+        for channel, count in summary['by_channel'].items():
+            text += f"   {channel}: {count}\n"
+        
+        text += "\n🎯 <b>По сегментам:</b>\n"
+        for segment, count in summary['by_segment'].items():
+            text += f"   {segment}: {count}\n"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения сводки: {e}")
+
+async def handle_add_partner(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Добавление нового партнёра."""
+    user_text = update.message.text
+    
+    # Парсим команду добавления партнёра
+    pattern = r"добавь партнёра? ([^,]+), канал ([^,]+), контакты ([^,]+)(?:, статус ([^,]+))?(?:, сегмент ([^,]+))?"
+    match = re.search(pattern, user_text, re.I)
+    
+    if not match:
+        await update.message.reply_text(
+            "🤝 <b>Добавление партнёра</b>\n\n"
+            "Формат:\n"
+            "• 'Добавь партнёра [имя], канал [канал], контакты [контакты]'\n"
+            "• 'Добавь партнёра [имя], канал [канал], контакты [контакты], статус [статус]'\n"
+            "• 'Добавь партнёра [имя], канал [канал], контакты [контакты], статус [статус], сегмент [сегмент]'\n\n"
+            "Примеры:\n"
+            "• Добавь партнёра Иван Петров, канал telegram, контакты @ivan_petrov\n"
+            "• Добавь партнёра ООО Рога, канал email, контакты info@roga.ru, статус prospect, сегмент startup",
+            parse_mode='HTML'
+        )
+        return
+    
+    name = match.group(1).strip()
+    channel = match.group(2).strip()
+    contacts = match.group(3).strip()
+    status = match.group(4).strip() if match.group(4) else "prospect"
+    segment = match.group(5).strip() if match.group(5) else "general"
+    
+    try:
+        success = partners_manager.add_partner(name, channel, contacts, status, segment)
+        if success:
+            await update.message.reply_text(f"✅ Партнёр {name} добавлен в базу")
+        else:
+            await update.message.reply_text("❌ Ошибка добавления партнёра")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+async def handle_partners_for_calling(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать партнёров для прозвона."""
+    user_text = update.message.text.lower()
+    
+    # Определяем количество дней
+    days = 7
+    if "неделя" in user_text:
+        days = 7
+    elif "месяц" in user_text:
+        days = 30
+    elif "день" in user_text:
+        days = 1
+    
+    try:
+        partners = partners_manager.get_partners_for_calling(days)
+        
+        if not partners:
+            await update.message.reply_text(f"📞 Нет партнёров для прозвона (не контактировали {days} дней)")
+            return
+        
+        text = f"📞 <b>Партнёры для прозвона (не контактировали {days} дней):</b>\n\n"
+        
+        for i, partner in enumerate(partners[:10], 1):
+            text += f"{i}. <b>{partner['name']}</b>\n"
+            text += f"   Канал: {partner['channel']}\n"
+            text += f"   Контакты: {partner['contacts']}\n"
+            text += f"   Сегмент: {partner.get('segment', 'general')}\n"
+            text += f"   Последний контакт: {partner.get('last_contact', 'Не указан')}\n\n"
+        
+        if len(partners) > 10:
+            text += f"... и еще {len(partners) - 10} партнёров"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения списка: {e}")
+
+async def handle_partners_for_emailing(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать партнёров для рассылки."""
+    user_text = update.message.text.lower()
+    
+    # Определяем сегмент
+    segment = None
+    if "стартап" in user_text:
+        segment = "startup"
+    elif "enterprise" in user_text or "крупные" in user_text:
+        segment = "enterprise"
+    elif "агентство" in user_text:
+        segment = "agency"
+    elif "разработчик" in user_text:
+        segment = "developer"
+    
+    try:
+        partners = partners_manager.get_partners_for_emailing(segment)
+        
+        if not partners:
+            segment_text = f" сегмента {segment}" if segment else ""
+            await update.message.reply_text(f"📧 Нет партнёров для email рассылки{segment_text}")
+            return
+        
+        text = f"📧 <b>Партнёры для email рассылки"
+        if segment:
+            text += f" (сегмент: {segment})"
+        text += f":</b>\n\n"
+        
+        for i, partner in enumerate(partners[:10], 1):
+            text += f"{i}. <b>{partner['name']}</b>\n"
+            text += f"   Контакты: {partner['contacts']}\n"
+            text += f"   Статус: {partner['status']}\n"
+            text += f"   Сегмент: {partner.get('segment', 'general')}\n\n"
+        
+        if len(partners) > 10:
+            text += f"... и еще {len(partners) - 10} партнёров"
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения списка: {e}")
+
+async def handle_generate_proposal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Генерация предложения для партнёра."""
+    user_text = update.message.text
+    
+    # Парсим команду генерации предложения
+    pattern = r"(предложение|proposal) (?:для|к) ([^,]+)(?:, сегмент ([^,]+))?"
+    match = re.search(pattern, user_text, re.I)
+    
+    if not match:
+        await update.message.reply_text(
+            "📝 <b>Генерация предложения</b>\n\n"
+            "Формат:\n"
+            "• 'Предложение для [имя партнёра]'\n"
+            "• 'Предложение для [имя партнёра], сегмент [сегмент]'\n\n"
+            "Примеры:\n"
+            "• Предложение для Иван Петров\n"
+            "• Proposal для ООО Рога, сегмент startup",
+            parse_mode='HTML'
+        )
+        return
+    
+    partner_name = match.group(2).strip()
+    segment = match.group(3).strip() if match.group(3) else None
+    
+    try:
+        # Ищем партнёра
+        partners = partners_manager.get_all_partners()
+        partner = None
+        for p in partners:
+            if p['name'].lower() == partner_name.lower():
+                partner = p
+                break
+        
+        if not partner:
+            await update.message.reply_text(f"❌ Партнёр '{partner_name}' не найден в базе")
+            return
+        
+        await update.message.reply_text("🤖 Генерирую персонализированное предложение...")
+        
+        proposal = partners_manager.generate_proposal(partner, segment)
+        
+        text = f"📝 <b>Предложение для {partner['name']}:</b>\n\n"
+        text += proposal
+        
+        await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка генерации предложения: {e}")
+
+async def handle_bulk_proposals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Генерация предложений для группы партнёров."""
+    user_text = update.message.text.lower()
+    
+    # Определяем сегмент
+    segment = None
+    if "стартап" in user_text:
+        segment = "startup"
+    elif "enterprise" in user_text or "крупные" in user_text:
+        segment = "enterprise"
+    elif "агентство" in user_text:
+        segment = "agency"
+    elif "разработчик" in user_text:
+        segment = "developer"
+    
+    # Определяем лимит
+    limit = 5
+    if "10" in user_text:
+        limit = 10
+    elif "3" in user_text:
+        limit = 3
+    
+    try:
+        await update.message.reply_text(f"🤖 Генерирую предложения для {limit} партнёров...")
+        
+        proposals = partners_manager.generate_bulk_proposals(segment, limit)
+        
+        if not proposals:
+            segment_text = f" сегмента {segment}" if segment else ""
+            await update.message.reply_text(f"❌ Нет партнёров для генерации предложений{segment_text}")
+            return
+        
+        text = f"📝 <b>Предложения для партнёров"
+        if segment:
+            text += f" (сегмент: {segment})"
+        text += f":</b>\n\n"
+        
+        for i, item in enumerate(proposals, 1):
+            partner = item['partner']
+            proposal = item['proposal']
+            
+            text += f"<b>{i}. {partner['name']}</b>\n"
+            text += f"Канал: {partner['channel']}\n"
+            text += f"Контакты: {partner['contacts']}\n\n"
+            text += f"<i>Предложение:</i>\n{proposal}\n"
+            text += "─" * 50 + "\n\n"
+        
+        # Разбиваем на части, если слишком длинное
+        if len(text) > 4000:
+            parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
+            for i, part in enumerate(parts):
+                await update.message.reply_text(f"{part} (часть {i+1}/{len(parts)})", parse_mode='HTML')
+        else:
+            await update.message.reply_text(text, parse_mode='HTML')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка генерации предложений: {e}")
