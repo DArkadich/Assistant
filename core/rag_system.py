@@ -3,15 +3,6 @@ RAG System - Temporarily Disabled
 This module is temporarily disabled due to heavy dependencies.
 """
 
-import os
-import json
-import chromadb
-from sentence_transformers import SentenceTransformer
-import numpy as np
-from typing import List, Dict, Optional, Tuple
-import re
-from datetime import datetime
-
 class RAGSystem:
     def __init__(self):
         self.is_enabled = False
