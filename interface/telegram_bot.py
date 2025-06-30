@@ -4476,6 +4476,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ... остальные обработчики ...
 
 def run_bot():
+    print("[DEBUG] run_bot вызван")
     import asyncio
     from telegram.ext import ApplicationBuilder, MessageHandler, filters, CallbackQueryHandler
     
