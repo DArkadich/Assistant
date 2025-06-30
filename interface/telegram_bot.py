@@ -4471,3 +4471,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_meeting_assistant(update, context)
         return
     # ... остальные обработчики ...
+
+def run_bot():
+    import asyncio
+    from telegram.ext import ApplicationBuilder, MessageHandler, filters, CallbackQueryHandler
+    
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+
+    # Основной обработчик текстовых сообщений
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    # Callback-кнопки
+    app.add_handler(CallbackQueryHandler(handle_callback_query))
+    # Голосовые сообщения
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
+    # Документы и аудио (например, для встреч)
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.AUDIO, handle_meeting_assistant))
+
+    # Планировщик и polling календаря
+    start_scheduler(app)
+    start_calendar_polling(app)
+
+    # Запуск бота
+    print("[TelegramBot] Запуск polling...")
+    asyncio.run(app.run_polling())
