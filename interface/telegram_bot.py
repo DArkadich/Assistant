@@ -2085,122 +2085,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply, parse_mode='HTML')
 
     # --- Голосовое распознавание ---
-    async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка голосовых сообщений."""
-        try:
-            # Отправляем сообщение о начале обработки
-            processing_msg = await update.message.reply_text(
-                "🎤 Обрабатываю голосовое сообщение...\n"
-                "🔍 Выполняю распознавание речи..."
-            )
-            
-            # Получаем голосовое сообщение
-            voice = update.message.voice
-            file = await context.bot.get_file(voice.file_id)
-            
-            # Скачиваем аудиофайл
-            temp_path = f"/tmp/voice_{voice.file_id}.ogg"
-            await file.download_to_drive(temp_path)
-            
-            # Распознаем речь
-            recognized_text = speech_recognizer.recognize_speech(temp_path)
-            
-            # Удаляем временный файл
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            
-            if not recognized_text:
-                await processing_msg.edit_text(
-                    "❌ Не удалось распознать речь.\n"
-                    "Попробуйте говорить четче или отправьте текстовое сообщение."
-                )
-                return
-            
-            # Сохраняем распознанный текст в память
-            user_id = update.message.from_user.id
-            username = update.message.from_user.username or update.message.from_user.full_name
-            chat_memory.add_message(user_id=user_id, username=username, text=recognized_text, role="user")
-            
-            # Показываем распознанный текст
-            await processing_msg.edit_text(
-                f"🎤 <b>Распознанный текст:</b>\n{recognized_text}\n\n"
-                f"🔧 Обрабатываю команду...",
-                parse_mode='HTML'
-            )
-
-            # --- Новый блок: парсер голосовых задач сотрудникам ---
-            import re
-            from core.team_manager import team_manager
-            from datetime import datetime, timedelta
-            
-            # Примеры: "Пусть Маша проверит остатки", "Поручи Ивану отправить отчёт", "Попроси Сергея сделать ..."
-            task_patterns = [
-                r"пусть ([а-яёa-zA-Z]+) (.+)",
-                r"поручи ([а-яёa-zA-Z]+)[уe] (.+)",
-                r"попроси ([а-яёa-zA-Z]+)[уe] (.+)",
-                r"назначь ([а-яёa-zA-Z]+)[уe] (.+)",
-                r"([а-яёa-zA-Z]+),? (.+)"  # Маша, проверь остатки
-            ]
-            matched = None
-            for pattern in task_patterns:
-                m = re.match(pattern, recognized_text.strip(), re.I)
-                if m:
-                    matched = m
-                    break
-            
-            if matched:
-                employee_name = matched.group(1).strip().capitalize()
-                task_text = matched.group(2).strip().capitalize()
-                # Поиск сотрудника по имени (нечувствительно к регистру)
-                employees = team_manager.team_data['employees']
-                employee_id = None
-                for eid, edata in employees.items():
-                    if edata['name'].lower().startswith(employee_name.lower()):
-                        employee_id = eid
-                        break
-                if not employee_id:
-                    await update.message.reply_text(f"❌ Сотрудник '{employee_name}' не найден в команде. Добавьте его через 'добавить сотрудника'.")
-                    return
-                # Дедлайн по умолчанию: завтра
-                deadline = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
-                # Назначаем задачу
-                ok = team_manager.assign_task(employee_id, task_text, deadline, priority='medium')
-                if ok:
-                    await update.message.reply_text(f"✅ Задача для {employee_name} создана: {task_text}\nДедлайн: {deadline}")
-                    # Уведомление сотруднику (если есть chat_id)
-                    chat_id = employees[employee_id].get('chat_id')
-                    if chat_id:
-                        try:
-                            await context.bot.send_message(chat_id=chat_id, text=f"📝 Новая задача: {task_text}\nДедлайн: {deadline}")
-                        except Exception as e:
-                            await update.message.reply_text(f"⚠️ Не удалось отправить уведомление сотруднику: {e}")
-                    # Сообщение в общий чат
-                    await context.bot.send_message(update.effective_chat.id, f"📢 Задача назначена: {employee_name} — {task_text} (до {deadline})")
-                    return
-                else:
-                    await update.message.reply_text(f"❌ Не удалось назначить задачу сотруднику {employee_name}.")
-                    return
-            # --- Конец блока ---
-            
-            # Создаем фейковое сообщение для обработки
-            class FakeMessage:
-                def __init__(self, original_message, text):
-                    self.text = text
-                    self.from_user = original_message.from_user
-                    self.effective_chat = original_message.effective_chat
-                    self.reply_text = original_message.reply_text
-            
-            class FakeUpdate:
-                def __init__(self, original_update, text):
-                    self.message = FakeMessage(original_update.message, text)
-            
-            # Обрабатываем распознанный текст как обычную команду
-            fake_update = FakeUpdate(update, recognized_text)
-            await handle_message(fake_update, context)
-            
-        except Exception as e:
-            await update.message.reply_text(f"❌ Ошибка обработки голосового сообщения: {e}")
-
+    
     # --- Email функции ---
     async def handle_email_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показать сводку входящих сообщений."""
@@ -2513,6 +2398,123 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка получения списка: {e}")
+
+async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка голосовых сообщений."""
+        try:
+            # Отправляем сообщение о начале обработки
+            processing_msg = await update.message.reply_text(
+                "🎤 Обрабатываю голосовое сообщение...\n"
+                "🔍 Выполняю распознавание речи..."
+            )
+            
+            # Получаем голосовое сообщение
+            voice = update.message.voice
+            file = await context.bot.get_file(voice.file_id)
+            
+            # Скачиваем аудиофайл
+            temp_path = f"/tmp/voice_{voice.file_id}.ogg"
+            await file.download_to_drive(temp_path)
+            
+            # Распознаем речь
+            recognized_text = speech_recognizer.recognize_speech(temp_path)
+            
+            # Удаляем временный файл
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            
+            if not recognized_text:
+                await processing_msg.edit_text(
+                    "❌ Не удалось распознать речь.\n"
+                    "Попробуйте говорить четче или отправьте текстовое сообщение."
+                )
+                return
+            
+            # Сохраняем распознанный текст в память
+            user_id = update.message.from_user.id
+            username = update.message.from_user.username or update.message.from_user.full_name
+            chat_memory.add_message(user_id=user_id, username=username, text=recognized_text, role="user")
+            
+            # Показываем распознанный текст
+            await processing_msg.edit_text(
+                f"🎤 <b>Распознанный текст:</b>\n{recognized_text}\n\n"
+                f"🔧 Обрабатываю команду...",
+                parse_mode='HTML'
+            )
+
+            # --- Новый блок: парсер голосовых задач сотрудникам ---
+            import re
+            from core.team_manager import team_manager
+            from datetime import datetime, timedelta
+            
+            # Примеры: "Пусть Маша проверит остатки", "Поручи Ивану отправить отчёт", "Попроси Сергея сделать ..."
+            task_patterns = [
+                r"пусть ([а-яёa-zA-Z]+) (.+)",
+                r"поручи ([а-яёa-zA-Z]+)[уe] (.+)",
+                r"попроси ([а-яёa-zA-Z]+)[уe] (.+)",
+                r"назначь ([а-яёa-zA-Z]+)[уe] (.+)",
+                r"([а-яёa-zA-Z]+),? (.+)"  # Маша, проверь остатки
+            ]
+            matched = None
+            for pattern in task_patterns:
+                m = re.match(pattern, recognized_text.strip(), re.I)
+                if m:
+                    matched = m
+                    break
+            
+            if matched:
+                employee_name = matched.group(1).strip().capitalize()
+                task_text = matched.group(2).strip().capitalize()
+                # Поиск сотрудника по имени (нечувствительно к регистру)
+                employees = team_manager.team_data['employees']
+                employee_id = None
+                for eid, edata in employees.items():
+                    if edata['name'].lower().startswith(employee_name.lower()):
+                        employee_id = eid
+                        break
+                if not employee_id:
+                    await update.message.reply_text(f"❌ Сотрудник '{employee_name}' не найден в команде. Добавьте его через 'добавить сотрудника'.")
+                    return
+                # Дедлайн по умолчанию: завтра
+                deadline = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+                # Назначаем задачу
+                ok = team_manager.assign_task(employee_id, task_text, deadline, priority='medium')
+                if ok:
+                    await update.message.reply_text(f"✅ Задача для {employee_name} создана: {task_text}\nДедлайн: {deadline}")
+                    # Уведомление сотруднику (если есть chat_id)
+                    chat_id = employees[employee_id].get('chat_id')
+                    if chat_id:
+                        try:
+                            await context.bot.send_message(chat_id=chat_id, text=f"📝 Новая задача: {task_text}\nДедлайн: {deadline}")
+                        except Exception as e:
+                            await update.message.reply_text(f"⚠️ Не удалось отправить уведомление сотруднику: {e}")
+                    # Сообщение в общий чат
+                    await context.bot.send_message(update.effective_chat.id, f"📢 Задача назначена: {employee_name} — {task_text} (до {deadline})")
+                    return
+                else:
+                    await update.message.reply_text(f"❌ Не удалось назначить задачу сотруднику {employee_name}.")
+                    return
+            # --- Конец блока ---
+            
+            # Создаем фейковое сообщение для обработки
+            class FakeMessage:
+                def __init__(self, original_message, text):
+                    self.text = text
+                    self.from_user = original_message.from_user
+                    self.effective_chat = original_message.effective_chat
+                    self.reply_text = original_message.reply_text
+            
+            class FakeUpdate:
+                def __init__(self, original_update, text):
+                    self.message = FakeMessage(original_update.message, text)
+            
+            # Обрабатываем распознанный текст как обычную команду
+            fake_update = FakeUpdate(update, recognized_text)
+            await handle_message(fake_update, context)
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка обработки голосового сообщения: {e}")
+
 
     async def handle_partners_for_emailing(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показать партнёров для рассылки."""
