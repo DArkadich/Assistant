@@ -1,50 +1,97 @@
+print("[DEBUG] import telegram_bot.py", flush=True)
 import os
+print("[DEBUG] import os", flush=True)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+print("[DEBUG] import telegram", flush=True)
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters, CallbackQueryHandler
+print("[DEBUG] import telegram.ext", flush=True)
 import openai
+print("[DEBUG] import openai", flush=True)
 from core import calendar, finances, planner
+print("[DEBUG] import core.calendar, finances, planner", flush=True)
 import re
+print("[DEBUG] import re", flush=True)
 import json
+print("[DEBUG] import json", flush=True)
 from datetime import datetime, timedelta
+print("[DEBUG] import datetime, timedelta", flush=True)
 from apscheduler.schedulers.background import BackgroundScheduler
+print("[DEBUG] import apscheduler.schedulers.background", flush=True)
 import pytz
+print("[DEBUG] import pytz", flush=True)
 import dateparser
+print("[DEBUG] import dateparser", flush=True)
 import asyncio
+print("[DEBUG] import asyncio", flush=True)
 import threading
+print("[DEBUG] import threading", flush=True)
 from core.calendar import *
+print("[DEBUG] from core.calendar import *", flush=True)
 from core.finances import *
+print("[DEBUG] from core.finances import *", flush=True)
 from core.planner import *
+print("[DEBUG] from core.planner import *", flush=True)
 from core.drive_manager import drive_manager
+print("[DEBUG] from core.drive_manager import drive_manager", flush=True)
 from core.image_processor import image_processor
+print("[DEBUG] from core.image_processor import image_processor", flush=True)
 from core.goals import goals_manager, GoalType, GoalPeriod
+print("[DEBUG] from core.goals import goals_manager, GoalType, GoalPeriod", flush=True)
 from core.memory import chat_memory
+print("[DEBUG] from core.memory import chat_memory", flush=True)
 from core.speech_recognition import speech_recognizer
+print("[DEBUG] from core.speech_recognition import speech_recognizer", flush=True)
 from core.email_analyzer import email_analyzer
+print("[DEBUG] from core.email_analyzer import email_analyzer", flush=True)
 from core.partners import partners_manager
+print("[DEBUG] from core.partners import partners_manager", flush=True)
 from core.amocrm import amocrm
+print("[DEBUG] from core.amocrm import amocrm", flush=True)
 from core.obsidian_manager import obsidian_manager
+print("[DEBUG] from core.obsidian_manager import obsidian_manager", flush=True)
 from core.ai_critic import analyze_decision, format_critic_result
+print("[DEBUG] from core.ai_critic import analyze_decision, format_critic_result", flush=True)
 from email.message import EmailMessage
+print("[DEBUG] from email.message import EmailMessage", flush=True)
 # from email.policy import EmailPriority, EmailStatus # ВРЕМЕННО ОТКЛЮЧЕНО, т.к. вызывает ImportError
 import core.analytics
+print("[DEBUG] import core.analytics", flush=True)
 import core.team_manager
+print("[DEBUG] import core.team_manager", flush=True)
 import core.payment_control
+print("[DEBUG] import core.payment_control", flush=True)
 import core.inbox_monitor
+print("[DEBUG] import core.inbox_monitor", flush=True)
 import core.global_search
+print("[DEBUG] import core.global_search", flush=True)
 import core.digest
+print("[DEBUG] import core.digest", flush=True)
 from core.ai_critic import analyze_decision, format_critic_result
+print("[DEBUG] from core.ai_critic import analyze_decision, format_critic_result (2)", flush=True)
 import core.antistress
+print("[DEBUG] import core.antistress", flush=True)
 import core.meeting_prep
+print("[DEBUG] import core.meeting_prep", flush=True)
 from core.focus import focus_manager
+print("[DEBUG] from core.focus import focus_manager", flush=True)
 from core.work_mode import work_mode_manager
+print("[DEBUG] from core.work_mode import work_mode_manager", flush=True)
 from core.notification_manager import notification_manager
+print("[DEBUG] from core.notification_manager import notification_manager", flush=True)
 from typing import Optional
+print("[DEBUG] from typing import Optional", flush=True)
 from core.document_assistant import document_assistant
+print("[DEBUG] from core.document_assistant import document_assistant", flush=True)
 from core.speech_synthesizer import speech_synthesizer
+print("[DEBUG] from core.speech_synthesizer import speech_synthesizer", flush=True)
 from core.inbox_monitor import inbox_monitor
+print("[DEBUG] from core.inbox_monitor import inbox_monitor", flush=True)
 from core.deadline_monitor import deadline_monitor
+print("[DEBUG] from core.deadline_monitor import deadline_monitor", flush=True)
 from core.meeting_assistant import meeting_assistant
+print("[DEBUG] from core.meeting_assistant import meeting_assistant", flush=True)
 import tempfile
+print("[DEBUG] import tempfile", flush=True)
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -2003,7 +2050,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     'subscriptions': '👥',
                     'production': '🏭',
                     'custom': '🎯'
-                }.get(goal_type, '��')
+                }.get(goal_type, '')
                 
                 report += f"{type_emoji} <b>{goal_type.title()}:</b>\n"
                 
@@ -2145,7 +2192,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lens = "important"
         else:
             await update.message.reply_text(
-                "�� <b>Просмотр по линзам</b>\n\n"
+                " <b>Просмотр по линзам</b>\n\n"
                 "Используйте:\n"
                 "• 'Срочные сообщения' - срочные и важные\n"
                 "• 'Ожидают ответа' - требующие ответа\n"
@@ -3021,7 +3068,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     '08-Партнеры': '🤝',
                     '09-Клиенты': '👤',
                     '10-Документы': '📄'
-                }.get(result['category'], '��')
+                }.get(result['category'], '')
                 
                 report += f"{i}. {category_emoji} <b>{result['title']}</b>\n"
                 report += f"   📁 {result['category']}\n"

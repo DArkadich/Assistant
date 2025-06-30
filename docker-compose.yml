@@ -4,6 +4,6 @@ services:
     build: .
     env_file:
       - .env
-    volumes:
-      - .:/app
+#    volumes:
+#      - .:/app
     restart: unless-stopped 
