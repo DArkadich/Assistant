@@ -525,6 +525,7 @@ def check_calendar_changes_and_notify(app, chat_id):
 
 # --- Расширение handle_message ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("[DEBUG] handle_message вызван")
     user_text = update.message.text
     user_id = update.message.from_user.id
     username = update.message.from_user.username or update.message.from_user.full_name
