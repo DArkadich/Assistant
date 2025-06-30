@@ -2,7 +2,7 @@
 Модуль "Подготовка к встречам": сбор и синтез информации о контакте.
 """
 from datetime import datetime, timedelta
-from core.calendar import find_google_calendar_event_by_title_and_date, get_events_for_date_range
+from core.calendar import find_google_calendar_event_by_title_and_date
 from core.amocrm import amocrm
 from core.partners import partners_manager
 from core.email_analyzer import email_analyzer
