@@ -27,8 +27,5 @@ RUN pip install --no-cache-dir --upgrade pip \
 # Копирование кода приложения
 COPY . .
 
-# Создание placeholder для service_account.json
-RUN echo '{"type": "service_account", "project_id": "placeholder"}' > service_account.json
-
 # Запуск приложения
 CMD ["python", "main.py"] 
