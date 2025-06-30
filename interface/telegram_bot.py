@@ -15,7 +15,6 @@ from core.calendar import *
 from core.finances import *
 from core.planner import *
 from core.drive_manager import drive_manager
-from core.rag_system import rag_system
 from core.image_processor import image_processor
 from core.goals import goals_manager, GoalType, GoalPeriod
 from core.memory import chat_memory
@@ -26,7 +25,7 @@ from core.amocrm import amocrm
 from core.obsidian_manager import obsidian_manager
 from core.ai_critic import analyze_decision, format_critic_result
 from email.message import EmailMessage
-from email.policy import EmailPriority, EmailStatus
+# from email.policy import EmailPriority, EmailStatus # ВРЕМЕННО ОТКЛЮЧЕНО, т.к. вызывает ImportError
 import core.analytics
 import core.team_manager
 import core.payment_control
