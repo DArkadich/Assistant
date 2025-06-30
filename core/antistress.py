@@ -3,7 +3,7 @@
 """
 from core.calendar import get_daily_plan, find_google_calendar_event_by_title_and_date, delete_google_calendar_event
 from core.team_manager import team_manager
-from core.payment_control import get_report as get_payment_control_report
+from core.payment_control import get_control_report as get_payment_control_report
 from datetime import datetime
 
 def get_tasks_for_prioritization() -> str:
