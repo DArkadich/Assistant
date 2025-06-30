@@ -6,7 +6,7 @@ from typing import List, Dict
 # Импортируем необходимые модули
 from core.team_manager import team_manager
 from core.memory import chat_memory
-from core.finances import finances
+# from core.finances import finances  # УДАЛЕНО: такого объекта нет, используйте import core.finances при необходимости
 from core.obsidian_manager import obsidian_manager
 from core.amocrm import amocrm
 try:
