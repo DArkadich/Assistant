@@ -1,7 +1,7 @@
 """
 Модуль "Антиразрыв": приоритизация, разгрузка, фокус
 """
-from core.calendar import get_daily_plan, find_google_calendar_event_by_title_and_date, delete_google_calendar_event, get_events_for_date
+from core.calendar import get_daily_plan, find_google_calendar_event_by_title_and_date, delete_google_calendar_event
 from core.team_manager import team_manager
 from core.payment_control import get_report as get_payment_control_report
 from datetime import datetime
@@ -35,7 +35,7 @@ def get_tasks_for_prioritization() -> str:
 def get_todays_meetings() -> list:
     """Возвращает список сегодняшних встреч из Google Calendar."""
     today = datetime.now().strftime("%Y-%m-%d")
-    events = get_events_for_date(today)
+    events = get_daily_plan(today)
     return events
 
 def cancel_meetings_by_ids(event_ids: list) -> dict:
