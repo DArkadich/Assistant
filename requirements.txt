@@ -20,6 +20,7 @@ dateparser==1.1.8
 
 # Document processing
 PyPDF2==3.0.1
+PyMuPDF==1.23.8
 python-docx==1.1.0
 img2pdf>=0.4.0
 reportlab>=4.0.0
@@ -31,9 +32,10 @@ opencv-python==4.8.1.78
 pytesseract==0.3.10
 Pillow==10.0.1
 
-# Speech recognition
+# Speech processing
 SpeechRecognition==3.10.0
 pydub==0.25.1
+edge-tts==6.1.9  # Microsoft Edge TTS for high-quality Russian voice
 
 # RAG and ML (optimized versions)
 huggingface-hub==0.16.4

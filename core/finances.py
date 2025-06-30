@@ -741,4 +741,37 @@ def delete_document(doc_id):
         
     except Exception as e:
         print(f"❌ Ошибка удаления документа: {e}")
-        return False 
+        return False
+
+def cashflow_forecast(days_window: int = 30) -> dict:
+    """
+    Прогноз cash flow: на сколько дней хватит денег при текущем балансе и средних обязательных тратах.
+    days_window — за сколько дней считать средний расход (по умолчанию 30)
+    Возвращает dict с ключами: days_left, balance, avg_daily_expense, comment
+    """
+    from datetime import datetime, timedelta
+    # 1. Текущий баланс
+    balance = get_total_balance()
+    # 2. Считаем обязательные траты за days_window (по категориям: зарплата, аренда, сервисы, налоги и т.д.)
+    now = datetime.now().date()
+    start = now - timedelta(days=days_window)
+    expenses = [op for op in operations if op['type'] == 'expense']
+    # Можно фильтровать по обязательным категориям, если они есть
+    obligatory_categories = ['зарплата', 'аренда', 'сервисы', 'налоги', 'обязательные', 'обяз.']
+    obligatory_expenses = [op for op in expenses if op.get('category', '').lower() in obligatory_categories or 'обяз' in op.get('category', '').lower()]
+    # Если нет явных обязательных — берём все расходы
+    if not obligatory_expenses:
+        obligatory_expenses = [op for op in expenses if datetime.strptime(op['date'], '%Y-%m-%d').date() >= start]
+    # Сумма обязательных трат за days_window
+    total_expense = sum(op['amount'] for op in obligatory_expenses if datetime.strptime(op['date'], '%Y-%m-%d').date() >= start)
+    # Средний дневной расход
+    avg_daily_expense = total_expense / days_window if days_window > 0 else 0
+    # 3. Прогноз: на сколько дней хватит
+    days_left = int(balance // avg_daily_expense) if avg_daily_expense > 0 else 9999
+    comment = f"С учётом обязательных трат, тебе хватит на {days_left} дней" if avg_daily_expense > 0 else "Расходы не обнаружены, прогноз невозможен."
+    return {
+        'days_left': days_left,
+        'balance': balance,
+        'avg_daily_expense': round(avg_daily_expense, 2),
+        'comment': comment
+    } 
