@@ -3,7 +3,7 @@
 """
 from core.calendar import get_daily_plan, find_google_calendar_event_by_title_and_date, delete_google_calendar_event
 from core.team_manager import team_manager
-from core.payment_control import get_control_report as get_payment_control_report
+from core.payment_control import payment_control
 from datetime import datetime
 
 def get_tasks_for_prioritization() -> str:
@@ -51,7 +51,7 @@ def cancel_meetings_by_ids(event_ids: list) -> dict:
 
 def get_critical_summary() -> str:
     """Формирует сводку только по критичным точкам."""
-    report = get_payment_control_report()
+    report = payment_control.get_control_report()
     overdue_tasks = team_manager.get_overdue_tasks()
     
     summary = "<b>Критическая сводка:</b>\n\n"
